@@ -1,0 +1,66 @@
+# Soportes EPS - Gestor de Radicaciones
+
+Sistema web local para gestionar soportes de radicación de EPS en PDF.
+
+## Ejecutar
+
+Desde PowerShell:
+
+```powershell
+cd "C:\Users\romar\Documents\Codex\2026-06-22\files-mentioned-by-the-user-sistema\outputs\eps-radicacion-manager"
+.\start.ps1
+```
+
+Luego abre:
+
+```text
+http://127.0.0.1:8765/
+```
+
+## Conectar Supabase
+
+1. Crea un proyecto en Supabase.
+2. Abre el SQL Editor de Supabase y ejecuta el archivo `supabase_schema.sql`.
+3. Copia `.env.example` como `.env`.
+4. En `.env`, pega `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`.
+5. Reinicia el sistema con `.\start.ps1`.
+
+Con Supabase configurado, el sistema sincroniza usuarios, EPS, soportes, cortes, facturas, auditoría y PDFs. En otra PC, al iniciar con el mismo `.env`, restaura los registros desde Supabase y descarga los PDF cuando se consulten o descarguen.
+
+Con `DATA_BACKEND=supabase`, Supabase es la base única del sistema. SQLite no se inicializa ni se usa para usuarios, soportes, EPS, reportes, cortes o auditoría.
+
+## Usuarios de prueba
+
+| Rol | Correo | Contraseña |
+| --- | --- | --- |
+| Administrador | admin@eps.local | admin123 |
+| Digitador | digitador@eps.local | digitador123 |
+| Consulta | consulta@eps.local | consulta123 |
+
+## Funcionalidades incluidas
+
+- Login con roles: Administrador, Digitador y Consulta.
+- Rol Consulta en modo solo lectura: puede consultar/reportar/descargar, pero no puede subir, editar, eliminar ni administrar datos.
+- Carga múltiple de PDFs por arrastrar y soltar.
+- Lectura automática de texto con `pdfplumber` y respaldo con `pypdf`.
+- Extracción de EPS, fecha de radicación, número de radicado, factura, NIT y valor radicado cuando aparecen en el PDF.
+- Lectura de soportes Gmail/FOMAG, Gmail/Auditool y Gmail/Famisanar con tablas de múltiples facturas, incluso cuando el PDF trae fuentes codificadas y el texto sale dañado.
+- Pantalla de revisión cuando faltan EPS o fecha, sin volver a subir el archivo.
+- Clasificación física por año, mes y EPS en la carpeta `storage`.
+- Detección de duplicados por hash, número de radicado y nombre de archivo.
+- Dashboard con estadísticas, agrupación por EPS y últimas cargas.
+- Consulta con filtros por EPS, año, mes, fechas, radicado, factura, usuario, estado y archivo.
+- Consulta por cortes de radicación como dato operativo del soporte: Corte 1, Corte 2 o Corte 3. El corte no depende de la fecha de radicación.
+- Conteo de facturas detectadas dentro de cada PDF/radicado.
+- Reporte de EPS por corte, sumando facturas y soportes por cada EPS, con acceso directo al listado filtrado.
+- Visor PDF interno, descarga individual y descarga ZIP de todos los soportes filtrados.
+- Supabase como base de datos principal y Storage remoto para PDFs, pensado para cambio de PC/IP sin perder datos.
+- Administración de EPS, usuarios, configuración básica, reportes e historial de auditoría.
+
+## Datos y archivos
+
+- Base de datos: Supabase.
+- PDFs cargados: Supabase Storage, bucket `soportes-eps`.
+- PDFs de prueba: `samples/`
+
+El motor de extracción está aislado en `server.py` para permitir incorporar OCR más adelante sin cambiar la interfaz ni el modelo de datos.

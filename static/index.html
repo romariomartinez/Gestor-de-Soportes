@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Soportes EPS</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <section id="loginScreen" class="login-screen">
+      <div class="login-brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M7 4h10v4h3v12H4V8h3V4Zm2 4h6V6H9v2Zm-3 2v8h12v-8H6Zm5 1h2v2h2v2h-2v2h-2v-2H9v-2h2v-2Z" /></svg>
+        </div>
+        <div>
+          <p class="eyebrow">Gestión documental en salud</p>
+          <h1>Soportes EPS</h1>
+          <p>Centraliza radicaciones, clasifica PDFs y descarga soportes filtrados sin carpetas manuales.</p>
+        </div>
+      </div>
+
+      <form id="loginForm" class="login-card">
+        <h2>Ingresar</h2>
+        <label>
+          Correo
+          <input name="email" type="email" value="admin@eps.local" autocomplete="username" required />
+        </label>
+        <label>
+          Contraseña
+          <input name="password" type="password" value="admin123" autocomplete="current-password" required />
+        </label>
+        <button type="submit" class="btn primary wide">Entrar</button>
+        <div class="demo-users">
+          <span>Usuarios de prueba</span>
+          <button type="button" data-demo="admin@eps.local|admin123">Administrador</button>
+          <button type="button" data-demo="digitador@eps.local|digitador123">Digitador</button>
+          <button type="button" data-demo="consulta@eps.local|consulta123">Consulta</button>
+        </div>
+      </form>
+    </section>
+
+    <div id="appShell" class="app-shell hidden">
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <div class="brand-mark small" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M7 4h10v4h3v12H4V8h3V4Zm2 4h6V6H9v2Zm-3 2v8h12v-8H6Zm5 1h2v2h2v2h-2v2h-2v-2H9v-2h2v-2Z" /></svg>
+          </div>
+          <div>
+            <strong id="systemName">Soportes EPS</strong>
+            <span id="companyName">Gestor de Radicaciones</span>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <button class="nav-item active" data-view="dashboard" data-permission=""><span data-icon="dashboard"></span>Dashboard</button>
+          <button class="nav-item" data-view="upload" data-permission="upload"><span data-icon="upload"></span>Subir soportes</button>
+          <button class="nav-item" data-view="supports" data-permission=""><span data-icon="table"></span>Consultar soportes</button>
+          <button class="nav-item" data-view="eps" data-permission=""><span data-icon="building"></span>EPS</button>
+          <button class="nav-item" data-view="reports" data-permission="view_reports"><span data-icon="chart"></span>Reportes</button>
+          <button class="nav-item" data-view="users" data-permission="manage_users"><span data-icon="users"></span>Usuarios</button>
+          <button class="nav-item" data-view="settings" data-permission="configure"><span data-icon="settings"></span>Configuración</button>
+        </nav>
+
+        <div class="sidebar-user">
+          <div class="avatar" id="userAvatar">MG</div>
+          <div>
+            <strong id="userName">Usuario</strong>
+            <span id="userRole">Rol</span>
+          </div>
+          <button id="logoutBtn" class="icon-btn" title="Cerrar sesión"><span data-icon="logout"></span></button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="viewEyebrow">Panel principal</p>
+            <h2 id="viewTitle">Dashboard</h2>
+          </div>
+          <div class="topbar-actions">
+            <select id="topYear" aria-label="Año"></select>
+            <select id="topMonth" aria-label="Mes"></select>
+            <button id="refreshBtn" class="icon-btn" title="Actualizar"><span data-icon="refresh"></span></button>
+            <button class="icon-btn" title="Notificaciones"><span data-icon="bell"></span></button>
+          </div>
+        </header>
+
+        <section id="dashboardView" class="view active">
+          <div id="statGrid" class="stat-grid"></div>
+          <div class="dashboard-grid">
+            <article class="panel">
+              <div class="panel-head">
+                <h3>Soportes por EPS</h3>
+                <button class="text-btn" data-go="eps">Ver EPS</button>
+              </div>
+              <div id="epsChart" class="chart-wrap"></div>
+            </article>
+            <article class="panel wide-panel">
+              <div class="panel-head">
+                <h3>Últimos soportes cargados</h3>
+                <button class="text-btn" data-go="supports">Ver todos</button>
+              </div>
+              <div id="recentSupports"></div>
+            </article>
+            <aside class="panel filter-panel">
+              <div class="panel-head">
+                <h3>Filtros rápidos</h3>
+              </div>
+              <form id="quickFilters" class="filter-stack"></form>
+            </aside>
+          </div>
+        </section>
+
+        <section id="uploadView" class="view">
+          <div class="split-layout">
+            <article class="panel upload-panel">
+              <h3>Subir soportes</h3>
+              <div id="dropzone" class="dropzone" tabindex="0">
+                <span data-icon="cloud"></span>
+                <strong>Arrastra y suelta archivos PDF aquí</strong>
+                <small>También puedes seleccionarlos desde tu equipo</small>
+                <input id="fileInput" type="file" accept="application/pdf" multiple hidden />
+                <button id="selectFilesBtn" type="button" class="btn primary">Seleccionar archivos</button>
+              </div>
+            </article>
+            <article class="panel">
+              <div class="panel-head">
+                <h3>Resultado de extracción</h3>
+                <button id="clearUploadResults" class="text-btn">Limpiar</button>
+              </div>
+              <div id="uploadResults" class="upload-results empty-state">
+                <span data-icon="file"></span>
+                <p>Los PDFs cargados aparecerán aquí con sus datos detectados y alertas de revisión.</p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="supportsView" class="view">
+          <article class="panel">
+            <div class="panel-head wrap">
+              <h3>Listado y filtros</h3>
+              <div class="toolbar">
+                <button id="zipBtn" class="btn primary"><span data-icon="download"></span>Descargar ZIP</button>
+              </div>
+            </div>
+            <form id="supportFilters" class="filters-grid"></form>
+            <div id="supportsTable"></div>
+          </article>
+        </section>
+
+        <section id="epsView" class="view">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Administración de EPS</h3>
+              <button id="newEpsBtn" class="btn primary"><span data-icon="plus"></span>Nueva EPS</button>
+            </div>
+            <div id="epsTable"></div>
+          </article>
+        </section>
+
+        <section id="reportsView" class="view">
+          <div class="reports-grid">
+            <article class="panel">
+              <h3>Cantidad por EPS</h3>
+              <div id="reportEps" class="bar-list"></div>
+            </article>
+            <article class="panel">
+              <h3>Cantidad por usuario</h3>
+              <div id="reportUsers" class="bar-list"></div>
+            </article>
+            <article class="panel">
+              <h3>Cantidad por año</h3>
+              <div id="reportYears" class="bar-list"></div>
+            </article>
+            <article class="panel">
+              <h3>Indicadores</h3>
+              <div id="reportIndicators" class="indicator-list"></div>
+            </article>
+          </div>
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h3>EPS radicadas por corte</h3>
+                <p id="cutCycleLabel" class="panel-note"></p>
+              </div>
+              <button class="text-btn" data-go="supports">Buscar soportes</button>
+            </div>
+            <div id="reportCuts" class="cut-grid"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Historial de acciones</h3>
+              <button id="refreshAuditBtn" class="text-btn">Actualizar</button>
+            </div>
+            <div id="auditTable"></div>
+          </article>
+        </section>
+
+        <section id="usersView" class="view">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Usuarios y roles</h3>
+              <button id="newUserBtn" class="btn primary"><span data-icon="plus"></span>Nuevo usuario</button>
+            </div>
+            <div id="usersTable"></div>
+          </article>
+        </section>
+
+        <section id="settingsView" class="view">
+          <article class="panel settings-panel">
+            <h3>Configuración</h3>
+            <form id="settingsForm" class="settings-form"></form>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <div id="supportModal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-card review-modal">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Revisar información</p>
+            <h3 id="supportModalTitle">Completar datos</h3>
+          </div>
+          <button class="icon-btn close-modal" data-close="supportModal" title="Cerrar"><span data-icon="x"></span></button>
+        </div>
+        <div class="review-grid">
+          <form id="supportForm" class="review-form"></form>
+          <div class="pdf-preview">
+            <iframe id="reviewPdfFrame" title="Vista previa del PDF"></iframe>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="pdfModal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-card pdf-modal">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Visor PDF</p>
+            <h3 id="pdfTitle">Soporte</h3>
+          </div>
+          <div class="modal-actions">
+            <a id="pdfDownloadLink" class="btn secondary" href="#"><span data-icon="download"></span>Descargar</a>
+            <button id="fullscreenPdfBtn" class="icon-btn" title="Pantalla completa"><span data-icon="fullscreen"></span></button>
+            <button class="icon-btn close-modal" data-close="pdfModal" title="Cerrar"><span data-icon="x"></span></button>
+          </div>
+        </div>
+        <iframe id="pdfFrame" title="PDF"></iframe>
+      </div>
+    </div>
+
+    <div id="epsModal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-card compact-modal">
+        <div class="modal-head">
+          <h3 id="epsModalTitle">Nueva EPS</h3>
+          <button class="icon-btn close-modal" data-close="epsModal" title="Cerrar"><span data-icon="x"></span></button>
+        </div>
+        <form id="epsForm" class="modal-form"></form>
+      </div>
+    </div>
+
+    <div id="userModal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-card compact-modal">
+        <div class="modal-head">
+          <h3 id="userModalTitle">Nuevo usuario</h3>
+          <button class="icon-btn close-modal" data-close="userModal" title="Cerrar"><span data-icon="x"></span></button>
+        </div>
+        <form id="userForm" class="modal-form"></form>
+      </div>
+    </div>
+
+    <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
