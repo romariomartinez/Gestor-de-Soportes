@@ -183,6 +183,27 @@ def technical_user_email(name: str, existing_emails: set[str] | None = None) -> 
     return email
 
 
+def supabase_key_role(value: str) -> str:
+    if value.startswith("sb_secret_"):
+        return "secret"
+    if value.startswith("sb_publishable_"):
+        return "publishable"
+    parts = value.split(".")
+    if len(parts) >= 2:
+        try:
+            payload = parts[1] + "=" * (-len(parts[1]) % 4)
+            data = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")).decode("utf-8"))
+            return str(data.get("role") or "")
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            return ""
+    return ""
+
+
+def has_supabase_server_key() -> bool:
+    role = supabase_key_role(SUPABASE_SERVICE_KEY)
+    return bool(SUPABASE_SERVICE_KEY and role not in {"publishable", "anon"})
+
+
 def json_dumps(data: Any) -> bytes:
     return json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
 
@@ -420,12 +441,15 @@ def audit(
 
 
 def supabase_enabled() -> bool:
-    return bool(SUPABASE_URL and SUPABASE_SERVICE_KEY)
+    return bool(SUPABASE_URL and has_supabase_server_key())
 
 
 def supabase_config_message() -> str:
     if not SUPABASE_URL:
         return "Falta SUPABASE_URL en .env"
+    role = supabase_key_role(SUPABASE_SERVICE_KEY)
+    if role in {"publishable", "anon"}:
+        return "La variable SUPABASE_SERVICE_ROLE_KEY tiene una llave publica/anon. Usa una llave secreta del servidor: sb_secret_... o la legacy service_role."
     if not SUPABASE_SERVICE_KEY and SUPABASE_PUBLISHABLE_KEY:
         return "Hay una publishable key configurada, pero falta SUPABASE_SECRET_KEY o SUPABASE_SERVICE_ROLE_KEY para sincronizar desde el backend"
     if not SUPABASE_SERVICE_KEY:
@@ -436,7 +460,7 @@ def supabase_config_message() -> str:
 class SupabaseClient:
     def __init__(self) -> None:
         if not supabase_enabled():
-            raise RuntimeError("Supabase no esta configurado. Define SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY.")
+            raise RuntimeError(supabase_config_message())
         self.base_url = SUPABASE_URL
         self.service_key = SUPABASE_SERVICE_KEY
 
@@ -472,6 +496,12 @@ class SupabaseClient:
                 return data
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
+            lowered = detail.lower()
+            if exc.code in {401, 403} and ("permission denied" in lowered or "42501" in lowered):
+                raise RuntimeError(
+                    "Supabase rechazo la solicitud por permisos. En Vercel configura SUPABASE_SERVICE_ROLE_KEY "
+                    "con una llave secreta del servidor (sb_secret_... o legacy service_role), no con la publishable/anon key."
+                ) from exc
             raise RuntimeError(f"Supabase {method} {url} respondio {exc.code}: {detail[:700]}") from exc
         except URLError as exc:
             raise RuntimeError(f"No se pudo conectar a Supabase: {exc}") from exc

@@ -36,12 +36,12 @@ El proyecto incluye `vercel.json`, `api/index.py`, `requirements.txt` y `.python
 En Vercel configura estas Environment Variables antes de desplegar:
 
 - `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` con la llave secreta del servidor (`sb_secret_...`) o la legacy `service_role`
 - `SUPABASE_BUCKET=soportes-eps`
 - `DATA_BACKEND=supabase`
 - `SESSION_SECRET` con un texto largo y aleatorio
 
-No subas `.env` a GitHub. Las variables se configuran en el panel de Vercel o con la CLI.
+No uses `SUPABASE_KEY` ni una llave `sb_publishable_...` para `SUPABASE_SERVICE_ROLE_KEY`, porque Supabase la trata como rol `anon` y bloqueará tablas privadas como `app_users`. No subas `.env` a GitHub. Las variables se configuran en el panel de Vercel o con la CLI.
 
 ## Usuarios
 
