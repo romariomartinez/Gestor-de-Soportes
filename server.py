@@ -2172,14 +2172,16 @@ class AppHandler(SimpleHTTPRequestHandler):
         self.json_response({"item": support_public(row)})
 
     def supabase_find_duplicate(self, filename: str, sha: str, radicado: str | None, exclude_id: int | None = None) -> dict[str, Any] | None:
-        for row in sb_support_rows():
+        for row in sb_support_rows(include_deleted=True):
             if exclude_id and int(row.get("id") or 0) == exclude_id:
                 continue
+            deleted = row.get("status") == "eliminado"
             checks = [
                 ("hash", row.get("sha256") == sha),
-                ("nombre de archivo", str(row.get("original_filename") or "").lower() == filename.lower()),
             ]
-            if radicado:
+            if not deleted:
+                checks.append(("nombre de archivo", str(row.get("original_filename") or "").lower() == filename.lower()))
+            if radicado and not deleted:
                 checks.insert(1, ("numero de radicado", str(row.get("radicado") or "").lower() == radicado.lower()))
             for reason, matched in checks:
                 if matched:
@@ -2187,6 +2189,97 @@ class AppHandler(SimpleHTTPRequestHandler):
                     data["reason"] = reason
                     return data
         return None
+
+    def supabase_duplicate_upload_result(self, user: dict[str, Any], original: str, duplicate: dict[str, Any] | None) -> dict[str, Any]:
+        duplicate = duplicate or {"reason": "hash"}
+        message = "Este soporte ya fue cargado anteriormente."
+        if duplicate.get("status") == "eliminado":
+            message = "Este PDF ya existe en Supabase como soporte eliminado. No se puede cargar dos veces el mismo archivo."
+        sb_audit(
+            user,
+            "duplicate_pdf",
+            "support",
+            duplicate.get("id"),
+            {"filename": original, "duplicate_by": duplicate.get("reason") or "hash"},
+            self.client_address[0],
+        )
+        return {
+            "filename": original,
+            "status": "duplicado",
+            "message": message,
+            "duplicate": duplicate,
+        }
+
+    def supabase_restore_deleted_support(
+        self,
+        user: dict[str, Any],
+        deleted: dict[str, Any],
+        original: str,
+        sha: str,
+        content: bytes,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        eps_row = sb_get_or_create_eps(metadata["eps_name"], metadata.get("nit_eps")) if metadata["eps_name"] else None
+        if eps_row:
+            metadata["eps_id"] = eps_row["id"]
+            metadata["eps_name"] = eps_row["name"]
+        year = month = None
+        if metadata.get("radication_date"):
+            dt = datetime.strptime(metadata["radication_date"], "%Y-%m-%d")
+            year, month = dt.year, dt.month
+        deleted_id = int(deleted.get("id") or 0)
+        existing_paths = {
+            supabase_path(row.get("path"))
+            for row in sb_support_rows(include_deleted=True)
+            if int(row.get("id") or 0) != deleted_id
+        }
+        storage_path = sb_support_storage_path(metadata, original, metadata.get("radicado"), existing_paths)
+        SupabaseClient().upload_object(storage_path, content)
+        row = sb_update_by_id(
+            "supports",
+            deleted_id,
+            {
+                "original_filename": original,
+                "stored_filename": Path(storage_path).name,
+                "path": storage_path,
+                "storage_path": storage_path,
+                "eps_id": metadata.get("eps_id"),
+                "eps_name": metadata.get("eps_name") or None,
+                "radication_date": metadata.get("radication_date") or None,
+                "radicado": metadata.get("radicado") or None,
+                "factura": metadata.get("factura") or None,
+                "corte": metadata.get("corte") or None,
+                "invoice_count": metadata.get("invoice_count") or 0,
+                "invoice_numbers": metadata.get("invoice_numbers") or None,
+                "nit_eps": metadata.get("nit_eps") or None,
+                "valor_radicado": metadata.get("valor_radicado") or None,
+                "year": year,
+                "month": month,
+                "uploaded_at": now_iso(),
+                "uploaded_by": user["id"],
+                "uploaded_by_name": user["name"],
+                "size_bytes": len(content),
+                "sha256": sha,
+                "status": metadata["status"],
+                "observations": "",
+                "extracted_text": metadata["extracted_text"],
+            },
+        )
+        sb_audit(
+            user,
+            "restore_deleted_pdf",
+            "support",
+            row.get("id"),
+            {"filename": original, "status": metadata["status"], "missing": metadata["missing"]},
+            self.client_address[0],
+        )
+        return {
+            "filename": original,
+            "status": metadata["status"],
+            "message": "Soporte restaurado desde un registro eliminado.",
+            "missing": metadata["missing"],
+            "item": support_public(row),
+        }
 
     def supabase_upload_supports(self, user: dict[str, Any]) -> None:
         self.require_permission(user, "upload")
@@ -2232,15 +2325,10 @@ class AppHandler(SimpleHTTPRequestHandler):
 
             duplicate = self.supabase_find_duplicate(original, sha, metadata.get("radicado"))
             if duplicate:
-                sb_audit(user, "duplicate_pdf", "support", duplicate.get("id"), {"filename": original, "duplicate_by": duplicate["reason"]}, self.client_address[0])
-                results.append(
-                    {
-                        "filename": original,
-                        "status": "duplicado",
-                        "message": "Este soporte ya fue cargado anteriormente.",
-                        "duplicate": duplicate,
-                    }
-                )
+                if duplicate.get("status") == "eliminado" and duplicate.get("sha256") == sha:
+                    results.append(self.supabase_restore_deleted_support(user, duplicate, original, sha, content, metadata))
+                    continue
+                results.append(self.supabase_duplicate_upload_result(user, original, duplicate))
                 continue
 
             eps_row = sb_get_or_create_eps(metadata["eps_name"], metadata.get("nit_eps")) if metadata["eps_name"] else None
@@ -2254,35 +2342,45 @@ class AppHandler(SimpleHTTPRequestHandler):
                 dt = datetime.strptime(metadata["radication_date"], "%Y-%m-%d")
                 year, month = dt.year, dt.month
             client.upload_object(storage_path, content)
-            row = client.rest_insert(
-                "supports",
-                {
-                    "original_filename": original,
-                    "stored_filename": Path(storage_path).name,
-                    "path": storage_path,
-                    "storage_path": storage_path,
-                    "eps_id": metadata.get("eps_id"),
-                    "eps_name": metadata.get("eps_name") or None,
-                    "radication_date": metadata.get("radication_date") or None,
-                    "radicado": metadata.get("radicado") or None,
-                    "factura": metadata.get("factura") or None,
-                    "corte": metadata.get("corte") or None,
-                    "invoice_count": metadata.get("invoice_count") or 0,
-                    "invoice_numbers": metadata.get("invoice_numbers") or None,
-                    "nit_eps": metadata.get("nit_eps") or None,
-                    "valor_radicado": metadata.get("valor_radicado") or None,
-                    "year": year,
-                    "month": month,
-                    "uploaded_at": now_iso(),
-                    "uploaded_by": user["id"],
-                    "uploaded_by_name": user["name"],
-                    "size_bytes": len(content),
-                    "sha256": sha,
-                    "status": metadata["status"],
-                    "observations": "",
-                    "extracted_text": metadata["extracted_text"],
-                },
-            )
+            try:
+                row = client.rest_insert(
+                    "supports",
+                    {
+                        "original_filename": original,
+                        "stored_filename": Path(storage_path).name,
+                        "path": storage_path,
+                        "storage_path": storage_path,
+                        "eps_id": metadata.get("eps_id"),
+                        "eps_name": metadata.get("eps_name") or None,
+                        "radication_date": metadata.get("radication_date") or None,
+                        "radicado": metadata.get("radicado") or None,
+                        "factura": metadata.get("factura") or None,
+                        "corte": metadata.get("corte") or None,
+                        "invoice_count": metadata.get("invoice_count") or 0,
+                        "invoice_numbers": metadata.get("invoice_numbers") or None,
+                        "nit_eps": metadata.get("nit_eps") or None,
+                        "valor_radicado": metadata.get("valor_radicado") or None,
+                        "year": year,
+                        "month": month,
+                        "uploaded_at": now_iso(),
+                        "uploaded_by": user["id"],
+                        "uploaded_by_name": user["name"],
+                        "size_bytes": len(content),
+                        "sha256": sha,
+                        "status": metadata["status"],
+                        "observations": "",
+                        "extracted_text": metadata["extracted_text"],
+                    },
+                )
+            except RuntimeError as exc:
+                if "23505" in str(exc) or "duplicate key value" in str(exc).lower() or "supports_sha256_key" in str(exc):
+                    duplicate = self.supabase_find_duplicate(original, sha, metadata.get("radicado")) or {"reason": "hash", "sha256": sha}
+                    if duplicate.get("status") == "eliminado" and duplicate.get("sha256") == sha:
+                        results.append(self.supabase_restore_deleted_support(user, duplicate, original, sha, content, metadata))
+                        continue
+                    results.append(self.supabase_duplicate_upload_result(user, original, duplicate))
+                    continue
+                raise
             sb_audit(user, "upload_pdf", "support", row.get("id"), {"filename": original, "status": metadata["status"], "missing": metadata["missing"]}, self.client_address[0])
             results.append(
                 {
