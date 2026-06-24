@@ -121,9 +121,9 @@ ROLE_PERMISSIONS = {
 SESSIONS: dict[str, dict[str, Any]] = {}
 
 DEFAULT_USERS = [
-    ("María Gómez", "admin@eps.local", "admin123", "Administrador"),
-    ("Juan Pérez", "digitador@eps.local", "digitador123", "Digitador"),
-    ("Laura Torres", "consulta@eps.local", "consulta123", "Consulta"),
+    ("María Gómez", "admin@eps.local", "INITIAL_ADMIN_PASSWORD", "Administrador"),
+    ("Juan Pérez", "digitador@eps.local", "INITIAL_DIGITADOR_PASSWORD", "Digitador"),
+    ("Laura Torres", "consulta@eps.local", "INITIAL_CONSULTA_PASSWORD", "Consulta"),
 ]
 
 DEFAULT_EPS_ROWS = [
@@ -162,6 +162,24 @@ def slugify(value: str, fallback: str = "archivo") -> str:
     value = "".join(ch for ch in value if not unicodedata.combining(ch))
     value = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._-")
     return value[:120] or fallback
+
+
+def configured_default_users() -> list[tuple[str, str, str, str]]:
+    users = []
+    for name, email, password_env, role in DEFAULT_USERS:
+        password = os.environ.get(password_env)
+        if password:
+            users.append((name, email, password, role))
+    return users
+
+
+def technical_user_email(name: str, existing_emails: set[str] | None = None) -> str:
+    existing_emails = existing_emails or set()
+    base = slugify(name, "usuario").lower()
+    email = f"{base}@usuarios.local"
+    while email in existing_emails:
+        email = f"{base}-{uuid.uuid4().hex[:6]}@usuarios.local"
+    return email
 
 
 def json_dumps(data: Any) -> bytes:
@@ -297,12 +315,7 @@ def init_db() -> None:
             )
 
         if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
-            users = [
-                ("María Gómez", "admin@eps.local", "admin123", "Administrador"),
-                ("Juan Pérez", "digitador@eps.local", "digitador123", "Digitador"),
-                ("Laura Torres", "consulta@eps.local", "consulta123", "Consulta"),
-            ]
-            for name, email, password, role in users:
+            for name, email, password, role in configured_default_users():
                 conn.execute(
                     """
                     INSERT INTO users (name, email, password_hash, role, active, created_at)
@@ -466,6 +479,15 @@ class SupabaseClient:
             headers={"Prefer": "return=representation"},
         )
         return rows[0] if rows else {}
+
+    def rest_delete(self, table: str, filters: dict[str, str]) -> None:
+        query = urlencode(filters)
+        self.request(
+            "DELETE",
+            f"{self.base_url}/rest/v1/{table}?{query}",
+            headers={"Prefer": "return=minimal"},
+            expect_json=False,
+        )
 
     def ensure_bucket(self) -> None:
         payload = {"id": SUPABASE_BUCKET, "name": SUPABASE_BUCKET, "public": False}
@@ -648,7 +670,7 @@ def restore_from_supabase(download_files: bool = False) -> dict[str, Any]:
             values = (
                 item.get("name") or "Usuario",
                 item.get("email"),
-                item.get("password_hash") or hash_password("Temporal123"),
+                item.get("password_hash") or hash_password(secrets.token_urlsafe(24)),
                 item.get("role") or "Consulta",
                 int(item.get("active", 1)),
                 item.get("created_at") or now_iso(),
@@ -877,7 +899,8 @@ def sb_get_or_create_eps(eps_name: str, nit: str | None = None) -> dict[str, Any
 def sb_seed_defaults() -> None:
     client = SupabaseClient()
     client.ensure_bucket()
-    if not client.rest_select("app_users", {"select": "id", "limit": 1}):
+    default_users = configured_default_users()
+    if default_users and not client.rest_select("app_users", {"select": "id", "limit": 1}):
         client.rest_upsert(
             "app_users",
             [
@@ -889,7 +912,7 @@ def sb_seed_defaults() -> None:
                     "active": 1,
                     "created_at": now_iso(),
                 }
-                for name, email, password, role in DEFAULT_USERS
+                for name, email, password, role in default_users
             ],
             "email",
         )
@@ -1807,9 +1830,6 @@ class AppHandler(SimpleHTTPRequestHandler):
         if path == "/api/users" and self.command == "POST":
             self.require_permission(user, "manage_users")
             return self.create_user(user)
-        if path == "/api/audit" and self.command == "GET":
-            self.require_permission(user, "view_reports")
-            return self.list_audit(query)
         if path == "/api/reports" and self.command == "GET":
             self.require_permission(user, "view_reports")
             return self.reports()
@@ -1973,15 +1993,25 @@ class AppHandler(SimpleHTTPRequestHandler):
         if USE_SUPABASE_ONLY:
             return self.supabase_login()
         payload = self.read_json()
-        email = (payload.get("email") or "").strip().lower()
+        identifier = (payload.get("username") or payload.get("email") or "").strip()
+        identifier_norm = normalize_text(identifier)
         password = payload.get("password") or ""
         with db() as conn:
-            row = conn.execute("SELECT * FROM users WHERE lower(email) = lower(?) AND active = 1", (email,)).fetchone()
+            rows = conn.execute("SELECT * FROM users WHERE active = 1").fetchall()
+            row = next(
+                (
+                    item
+                    for item in rows
+                    if normalize_text(item["name"]) == identifier_norm
+                    or str(item["email"] or "").strip().lower() == identifier.lower()
+                ),
+                None,
+            )
             if not row or not verify_password(password, row["password_hash"]):
-                return self.error_json(401, "Correo o contraseña incorrectos")
+                return self.error_json(401, "Usuario o contraseña incorrectos")
             token = secrets.token_urlsafe(32)
             SESSIONS[token] = {"user_id": row["id"], "expires": time.time() + 8 * 60 * 60}
-            audit(conn, dict(row), "login", "user", row["id"], {"email": email}, self.client_address[0])
+            audit(conn, dict(row), "login", "user", row["id"], {"usuario": identifier}, self.client_address[0])
             conn.commit()
 
         jar = cookies.SimpleCookie()
@@ -2010,12 +2040,21 @@ class AppHandler(SimpleHTTPRequestHandler):
 
     def supabase_login(self) -> None:
         payload = self.read_json()
-        email = (payload.get("email") or "").strip().lower()
+        identifier = (payload.get("username") or payload.get("email") or "").strip()
+        identifier_norm = normalize_text(identifier)
         password = payload.get("password") or ""
-        rows = SupabaseClient().rest_select("app_users", {"select": "*", "email": f"eq.{email}", "active": "eq.1", "limit": 1})
-        row = rows[0] if rows else None
+        rows = SupabaseClient().rest_select("app_users", {"select": "*", "active": "eq.1", "limit": 10000})
+        row = next(
+            (
+                item
+                for item in rows
+                if normalize_text(item.get("name") or "") == identifier_norm
+                or str(item.get("email") or "").strip().lower() == identifier.lower()
+            ),
+            None,
+        )
         if not row or not verify_password(password, row.get("password_hash") or ""):
-            return self.error_json(401, "Correo o contraseÃ±a incorrectos")
+            return self.error_json(401, "Usuario o contraseña incorrectos")
         token = secrets.token_urlsafe(32)
         SESSIONS[token] = {"user_id": row["id"], "expires": time.time() + 8 * 60 * 60}
         user = {
@@ -2025,7 +2064,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             "role": row["role"],
             "active": row["active"],
         }
-        sb_audit(user, "login", "user", row["id"], {"email": email}, self.client_address[0])
+        sb_audit(user, "login", "user", row["id"], {"usuario": identifier}, self.client_address[0])
 
         jar = cookies.SimpleCookie()
         jar["eps_session"] = token
@@ -2421,57 +2460,69 @@ class AppHandler(SimpleHTTPRequestHandler):
         self.json_response({"ok": True})
 
     def supabase_delete_eps(self, user: dict[str, Any], eps_id: int) -> None:
-        sb_update_by_id("eps", eps_id, {"active": 0})
+        SupabaseClient().rest_delete("eps", {"id": f"eq.{eps_id}"})
         sb_audit(user, "delete_eps", "eps", eps_id, None, self.client_address[0])
         self.json_response({"ok": True})
 
     def supabase_list_users(self) -> None:
         rows = sb_all("app_users")
         rows.sort(key=lambda row: (-(int(row.get("active") or 0)), str(row.get("name") or "")))
-        safe = [{key: value for key, value in row.items() if key != "password_hash"} for row in rows]
+        safe = [{key: value for key, value in row.items() if key not in {"password_hash", "email"}} for row in rows]
         self.json_response({"items": safe})
 
     def supabase_create_user(self, user: dict[str, Any]) -> None:
         payload = self.read_json()
-        password = payload.get("password") or "Temporal123"
+        name = (payload.get("name") or "").strip()
+        password = payload.get("password") or ""
+        if not name:
+            return self.error_json(400, "El nombre de usuario es obligatorio")
+        if not password:
+            return self.error_json(400, "La contraseña es obligatoria")
+        existing_users = sb_all("app_users")
+        if any(normalize_text(row.get("name") or "") == normalize_text(name) for row in existing_users):
+            return self.error_json(409, "Ya existe un usuario con ese nombre")
+        existing_emails = {str(row.get("email") or "").strip().lower() for row in existing_users if row.get("email")}
         row = SupabaseClient().rest_insert(
             "app_users",
             {
-                "name": payload.get("name"),
-                "email": payload.get("email"),
+                "name": name,
+                "email": technical_user_email(name, existing_emails),
                 "password_hash": hash_password(password),
                 "role": payload.get("role") or "Consulta",
                 "active": 1 if payload.get("active", True) else 0,
                 "created_at": now_iso(),
             },
         )
-        sb_audit(user, "create_user", "user", row.get("id"), {"email": payload.get("email")}, self.client_address[0])
+        sb_audit(user, "create_user", "user", row.get("id"), {"usuario": name}, self.client_address[0])
         self.json_response({"ok": True})
 
     def supabase_update_user(self, user: dict[str, Any], target_id: int) -> None:
         payload = self.read_json()
+        current = sb_find_by_id("app_users", target_id)
+        if not current:
+            return self.error_json(404, "Usuario no encontrado")
+        name = (payload.get("name") or "").strip()
+        if not name:
+            return self.error_json(400, "El nombre de usuario es obligatorio")
+        for row in sb_all("app_users"):
+            if int(row.get("id") or 0) != target_id and normalize_text(row.get("name") or "") == normalize_text(name):
+                return self.error_json(409, "Ya existe un usuario con ese nombre")
         values = {
-            "name": payload.get("name"),
-            "email": payload.get("email"),
+            "name": name,
+            "email": current.get("email") or technical_user_email(name),
             "role": payload.get("role"),
             "active": 1 if payload.get("active", True) else 0,
         }
         if payload.get("password"):
             values["password_hash"] = hash_password(payload["password"])
         sb_update_by_id("app_users", target_id, values)
-        sb_audit(user, "update_user", "user", target_id, {"email": payload.get("email")}, self.client_address[0])
+        sb_audit(user, "update_user", "user", target_id, {"usuario": name}, self.client_address[0])
         self.json_response({"ok": True})
 
     def supabase_deactivate_user(self, user: dict[str, Any], target_id: int) -> None:
         sb_update_by_id("app_users", target_id, {"active": 0})
         sb_audit(user, "deactivate_user", "user", target_id, None, self.client_address[0])
         self.json_response({"ok": True})
-
-    def supabase_list_audit(self, query: dict[str, list[str]]) -> None:
-        limit = min(200, max(20, int((query.get("limit") or ["80"])[0] or "80")))
-        rows = sb_all("audit_logs")
-        rows.sort(key=lambda row: (str(row.get("created_at") or ""), int(row.get("id") or 0)), reverse=True)
-        self.json_response({"items": rows[:limit]})
 
     def supabase_reports(self) -> None:
         rows = sb_support_rows()
@@ -3078,7 +3129,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self.supabase_list_users()
         with db() as conn:
             rows = conn.execute(
-                "SELECT id, name, email, role, active, created_at FROM users ORDER BY active DESC, name"
+                "SELECT id, name, role, active, created_at FROM users ORDER BY active DESC, name"
             ).fetchall()
         self.json_response({"items": [dict(row) for row in rows]})
 
@@ -3086,23 +3137,31 @@ class AppHandler(SimpleHTTPRequestHandler):
         if USE_SUPABASE_ONLY:
             return self.supabase_create_user(user)
         payload = self.read_json()
-        password = payload.get("password") or "Temporal123"
+        name = (payload.get("name") or "").strip()
+        password = payload.get("password") or ""
+        if not name:
+            return self.error_json(400, "El nombre de usuario es obligatorio")
+        if not password:
+            return self.error_json(400, "La contraseña es obligatoria")
         with db() as conn:
+            if conn.execute("SELECT id FROM users WHERE lower(name) = lower(?)", (name,)).fetchone():
+                return self.error_json(409, "Ya existe un usuario con ese nombre")
+            existing_emails = {row["email"].lower() for row in conn.execute("SELECT email FROM users").fetchall()}
             cursor = conn.execute(
                 """
                 INSERT INTO users (name, email, password_hash, role, active, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    payload.get("name"),
-                    payload.get("email"),
+                    name,
+                    technical_user_email(name, existing_emails),
                     hash_password(password),
                     payload.get("role") or "Consulta",
                     1 if payload.get("active", True) else 0,
                     now_iso(),
                 ),
             )
-            audit(conn, user, "create_user", "user", cursor.lastrowid, {"email": payload.get("email")}, self.client_address[0])
+            audit(conn, user, "create_user", "user", cursor.lastrowid, {"usuario": name}, self.client_address[0])
             conn.commit()
         sync_supabase_after_write(upload_files=False)
         self.json_response({"ok": True})
@@ -3111,7 +3170,16 @@ class AppHandler(SimpleHTTPRequestHandler):
         if USE_SUPABASE_ONLY:
             return self.supabase_update_user(user, target_id)
         payload = self.read_json()
+        name = (payload.get("name") or "").strip()
+        if not name:
+            return self.error_json(400, "El nombre de usuario es obligatorio")
         with db() as conn:
+            current = conn.execute("SELECT * FROM users WHERE id = ?", (target_id,)).fetchone()
+            if not current:
+                return self.error_json(404, "Usuario no encontrado")
+            duplicate = conn.execute("SELECT id FROM users WHERE lower(name) = lower(?) AND id <> ?", (name, target_id)).fetchone()
+            if duplicate:
+                return self.error_json(409, "Ya existe un usuario con ese nombre")
             if payload.get("password"):
                 conn.execute(
                     """
@@ -3119,8 +3187,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                     WHERE id = ?
                     """,
                     (
-                        payload.get("name"),
-                        payload.get("email"),
+                        name,
+                        current["email"],
                         payload.get("role"),
                         1 if payload.get("active", True) else 0,
                         hash_password(payload["password"]),
@@ -3131,14 +3199,14 @@ class AppHandler(SimpleHTTPRequestHandler):
                 conn.execute(
                     "UPDATE users SET name = ?, email = ?, role = ?, active = ? WHERE id = ?",
                     (
-                        payload.get("name"),
-                        payload.get("email"),
+                        name,
+                        current["email"],
                         payload.get("role"),
                         1 if payload.get("active", True) else 0,
                         target_id,
                     ),
                 )
-            audit(conn, user, "update_user", "user", target_id, {"email": payload.get("email")}, self.client_address[0])
+            audit(conn, user, "update_user", "user", target_id, {"usuario": name}, self.client_address[0])
             conn.commit()
         sync_supabase_after_write(upload_files=False)
         self.json_response({"ok": True})
@@ -3152,14 +3220,6 @@ class AppHandler(SimpleHTTPRequestHandler):
             conn.commit()
         sync_supabase_after_write(upload_files=False)
         self.json_response({"ok": True})
-
-    def list_audit(self, query: dict[str, list[str]]) -> None:
-        if USE_SUPABASE_ONLY:
-            return self.supabase_list_audit(query)
-        limit = min(200, max(20, int((query.get("limit") or ["80"])[0] or "80")))
-        with db() as conn:
-            rows = conn.execute("SELECT * FROM audit_logs ORDER BY created_at DESC, id DESC LIMIT ?", (limit,)).fetchall()
-        self.json_response({"items": [dict(row) for row in rows]})
 
     def reports(self) -> None:
         if USE_SUPABASE_ONLY:

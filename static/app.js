@@ -22,7 +22,6 @@ const state = {
   supabase: null,
   activeView: "dashboard",
   supportFilters: {},
-  quickFilters: {},
   supportsPage: 1,
   supportsLimit: 10,
   years: [],
@@ -278,7 +277,6 @@ async function loadDashboard() {
   const topFilters = {
     year: $("#topYear").value || "",
     month: $("#topMonth").value || "",
-    ...state.quickFilters,
   };
   const data = await api(`/api/dashboard${qs(topFilters)}`);
   state.years = data.years || [];
@@ -286,7 +284,6 @@ async function loadDashboard() {
   renderStats(data.stats);
   renderEpsChart(data.by_eps || []);
   renderRecentSupports(data.recent || []);
-  buildQuickFilters();
   renderIcons();
 }
 
@@ -443,20 +440,6 @@ function supportsTable(rows, compact = false) {
 
 function renderRecentSupports(rows) {
   $("#recentSupports").innerHTML = supportsTable(rows, true);
-}
-
-function buildQuickFilters() {
-  const form = $("#quickFilters");
-  form.innerHTML = `
-    <label>EPS<select name="eps">${epsOptions(state.quickFilters.eps || "")}</select></label>
-    <label>Año<select name="year">${yearOptions(state.quickFilters.year || "")}</select></label>
-    <label>Mes<select name="month">${monthOptions(state.quickFilters.month || "")}</select></label>
-    <label>Corte<select name="corte">${corteOptions(state.quickFilters.corte || "")}</select></label>
-    <div class="filter-actions">
-      <button class="btn primary" type="submit">Buscar</button>
-      <button class="btn secondary" type="button" data-clear-quick>Limpiar</button>
-    </div>`;
-  renderIcons(form);
 }
 
 function buildSupportFilters() {
@@ -663,7 +646,7 @@ function closeModal(id) {
 }
 
 async function deleteSupport(id) {
-  if (!confirm("¿Eliminar este soporte? Quedará registrado en el historial.")) return;
+  if (!confirm("¿Eliminar este soporte? Esta acción no se puede deshacer desde la pantalla.")) return;
   try {
     await api(`/api/supports/${id}`, { method: "DELETE" });
     toast("Soporte eliminado.", "success");
@@ -715,7 +698,7 @@ function renderEpsTable() {
                   canManage
                     ? `<td><div class="row-actions">
                         <button class="mini-btn" title="Editar" data-eps-edit="${eps.id}">${icon("edit")}</button>
-                        <button class="mini-btn" title="Desactivar" data-eps-delete="${eps.id}">${icon("trash")}</button>
+                        <button class="mini-btn" title="Eliminar" data-eps-delete="${eps.id}">${icon("trash")}</button>
                       </div></td>`
                     : ""
                 }
@@ -759,7 +742,6 @@ async function saveEps(event) {
     await loadEps();
     renderEpsTable();
     buildSupportFilters();
-    buildQuickFilters();
   } catch (error) {
     toast(error.message, "danger");
   }
@@ -774,14 +756,13 @@ function renderUsers(users) {
   $("#usersTable").innerHTML = `
     <div class="table-shell">
       <table>
-        <thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Estado</th><th>Creado</th><th>Acciones</th></tr></thead>
+        <thead><tr><th>Nombre de usuario</th><th>Rol</th><th>Estado</th><th>Creado</th><th>Acciones</th></tr></thead>
         <tbody>
           ${users
             .map(
               (user) => `
               <tr>
                 <td>${escapeHtml(user.name)}</td>
-                <td>${escapeHtml(user.email)}</td>
                 <td>${escapeHtml(user.role)}</td>
                 <td><span class="status-pill ${user.active ? "" : "deleted"}">${user.active ? "Activo" : "Inactivo"}</span></td>
                 <td>${formatDateTime(user.created_at)}</td>
@@ -803,14 +784,13 @@ function openUserModal(user = null) {
   $("#userModalTitle").textContent = user ? "Editar usuario" : "Nuevo usuario";
   $("#userForm").dataset.id = user?.id || "";
   $("#userForm").innerHTML = `
-    <label>Nombre<input name="name" value="${escapeHtml(user?.name || "")}" required></label>
-    <label>Correo<input name="email" type="email" value="${escapeHtml(user?.email || "")}" required></label>
+    <label>Nombre de usuario<input name="name" value="${escapeHtml(user?.name || "")}" autocomplete="username" required></label>
     <label>Rol
       <select name="role">
         ${["Administrador", "Digitador", "Consulta"].map((role) => `<option value="${role}" ${user?.role === role ? "selected" : ""}>${role}</option>`).join("")}
       </select>
     </label>
-    <label>Contraseña${user ? " nueva" : ""}<input name="password" type="password" ${user ? "" : "required"}></label>
+    <label>Contraseña${user ? " nueva" : ""}<input name="password" type="password" autocomplete="new-password" ${user ? "" : "required"}></label>
     <label>Estado<select name="active"><option value="true" ${user?.active !== 0 ? "selected" : ""}>Activo</option><option value="false" ${user?.active === 0 ? "selected" : ""}>Inactivo</option></select></label>
     <div class="form-actions">
       <button type="button" class="btn secondary close-modal" data-close="userModal">Cancelar</button>
@@ -838,9 +818,8 @@ async function saveUser(event) {
 async function loadReports() {
   const selectedYear = $("#topYear").value || "";
   const selectedMonth = $("#topMonth").value || "";
-  const [reports, audit, cortes] = await Promise.all([
+  const [reports, cortes] = await Promise.all([
     api("/api/reports"),
-    api("/api/audit"),
     api(`/api/cortes${qs({ year: selectedYear, month: selectedMonth })}`),
   ]);
   renderBarList("#reportEps", reports.by_eps || []);
@@ -850,7 +829,6 @@ async function loadReports() {
     <div class="indicator"><span>Soportes pendientes</span><strong>${formatNumber(reports.pending)}</strong></div>
     <div class="indicator"><span>Duplicados detectados</span><strong>${formatNumber(reports.duplicates)}</strong></div>`;
   renderCutReport(cortes);
-  renderAudit(audit.items || []);
 }
 
 function renderCutReport(data) {
@@ -903,32 +881,6 @@ function renderBarList(selector, rows) {
         )
         .join("")
     : `<div class="empty-state">${icon("chart")}<p>Sin datos todavía.</p></div>`;
-}
-
-function renderAudit(rows) {
-  $("#auditTable").innerHTML = rows.length
-    ? `
-      <div class="table-shell">
-        <table>
-          <thead><tr><th>Fecha</th><th>Usuario</th><th>Acción</th><th>Entidad</th><th>Detalle</th><th>IP</th></tr></thead>
-          <tbody>
-            ${rows
-              .map(
-                (row) => `
-                <tr>
-                  <td>${formatDateTime(row.created_at)}</td>
-                  <td>${escapeHtml(row.user_name || "Sistema")}</td>
-                  <td>${escapeHtml(row.action)}</td>
-                  <td>${escapeHtml(row.entity_type)} ${row.entity_id || ""}</td>
-                  <td>${escapeHtml(row.details || "")}</td>
-                  <td>${escapeHtml(row.ip_address || "")}</td>
-                </tr>`
-              )
-              .join("")}
-          </tbody>
-        </table>
-      </div>`
-    : `<div class="empty-state">${icon("file")}<p>Sin acciones registradas.</p></div>`;
 }
 
 function renderSettingsForm() {
@@ -995,7 +947,7 @@ async function showView(name) {
     upload: ["Subir soportes", "Carga y extracción"],
     supports: ["Consultar soportes", "Listado documental"],
     eps: ["EPS", "Catálogo"],
-    reports: ["Reportes", "Indicadores e historial"],
+    reports: ["Reportes", "Indicadores"],
     users: ["Usuarios", "Roles y accesos"],
     settings: ["Configuración", "Sistema"],
   };
@@ -1035,14 +987,6 @@ function bindEvents() {
     } catch (error) {
       toast(error.message, "danger");
     }
-  });
-
-  $$(".demo-users button").forEach((button) => {
-    button.addEventListener("click", () => {
-      const [email, password] = button.dataset.demo.split("|");
-      $("#loginForm [name=email]").value = email;
-      $("#loginForm [name=password]").value = password;
-    });
   });
 
   $("#logoutBtn").addEventListener("click", async () => {
@@ -1089,11 +1033,11 @@ function bindEvents() {
     if (epsEdit) openEpsModal(state.eps.find((eps) => eps.id === Number(epsEdit.dataset.epsEdit)));
 
     const epsDelete = event.target.closest("[data-eps-delete]");
-    if (epsDelete && confirm("¿Desactivar esta EPS?")) {
+    if (epsDelete && confirm("¿Eliminar esta EPS del catálogo? Los soportes ya cargados se conservan.")) {
       await api(`/api/eps/${epsDelete.dataset.epsDelete}`, { method: "DELETE" });
       await loadEps();
       renderEpsTable();
-      toast("EPS desactivada.", "success");
+      toast("EPS eliminada.", "success");
     }
 
     const userEdit = event.target.closest("[data-user-edit]");
@@ -1107,13 +1051,6 @@ function bindEvents() {
       await api(`/api/users/${userDelete.dataset.userDelete}`, { method: "DELETE" });
       await loadUsers();
       toast("Usuario desactivado.", "success");
-    }
-
-    const clearQuick = event.target.closest("[data-clear-quick]");
-    if (clearQuick) {
-      state.quickFilters = {};
-      buildQuickFilters();
-      await loadDashboard();
     }
 
     const clearFilters = event.target.closest("[data-clear-filters]");
@@ -1146,16 +1083,6 @@ function bindEvents() {
     (state.activeView === "reports" ? loadReports() : loadDashboard()).catch((error) => toast(error.message, "danger"))
   );
   $("#refreshBtn").addEventListener("click", () => showView(state.activeView).catch((error) => toast(error.message, "danger")));
-  $("#refreshAuditBtn").addEventListener("click", () => loadReports().catch((error) => toast(error.message, "danger")));
-
-  $("#quickFilters").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    state.quickFilters = collectForm(event.currentTarget);
-    state.supportFilters = { ...state.quickFilters };
-    buildSupportFilters();
-    await loadDashboard();
-    await showView("supports");
-  });
 
   $("#supportFilters").addEventListener("submit", async (event) => {
     event.preventDefault();

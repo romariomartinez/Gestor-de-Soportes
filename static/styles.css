@@ -168,31 +168,6 @@ textarea:focus {
   margin-top: 14px;
 }
 
-.demo-users {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.demo-users span {
-  flex-basis: 100%;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.demo-users button {
-  border: 1px solid var(--line);
-  background: var(--surface-soft);
-  border-radius: 7px;
-  color: #27364d;
-  padding: 7px 10px;
-  cursor: pointer;
-}
-
 .btn,
 .icon-btn,
 .text-btn {

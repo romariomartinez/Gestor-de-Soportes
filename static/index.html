@@ -22,20 +22,14 @@
       <form id="loginForm" class="login-card">
         <h2>Ingresar</h2>
         <label>
-          Correo
-          <input name="email" type="email" value="admin@eps.local" autocomplete="username" required />
+          Usuario
+          <input name="username" type="text" autocomplete="username" required />
         </label>
         <label>
           Contraseña
-          <input name="password" type="password" value="admin123" autocomplete="current-password" required />
+          <input name="password" type="password" autocomplete="current-password" required />
         </label>
         <button type="submit" class="btn primary wide">Entrar</button>
-        <div class="demo-users">
-          <span>Usuarios de prueba</span>
-          <button type="button" data-demo="admin@eps.local|admin123">Administrador</button>
-          <button type="button" data-demo="digitador@eps.local|digitador123">Digitador</button>
-          <button type="button" data-demo="consulta@eps.local|consulta123">Consulta</button>
-        </div>
       </form>
     </section>
 
@@ -102,12 +96,6 @@
               </div>
               <div id="recentSupports"></div>
             </article>
-            <aside class="panel filter-panel">
-              <div class="panel-head">
-                <h3>Filtros rápidos</h3>
-              </div>
-              <form id="quickFilters" class="filter-stack"></form>
-            </aside>
           </div>
         </section>
 
@@ -184,16 +172,8 @@
                 <h3>EPS radicadas por corte</h3>
                 <p id="cutCycleLabel" class="panel-note"></p>
               </div>
-              <button class="text-btn" data-go="supports">Buscar soportes</button>
             </div>
             <div id="reportCuts" class="cut-grid"></div>
-          </article>
-          <article class="panel">
-            <div class="panel-head">
-              <h3>Historial de acciones</h3>
-              <button id="refreshAuditBtn" class="text-btn">Actualizar</button>
-            </div>
-            <div id="auditTable"></div>
           </article>
         </section>
 

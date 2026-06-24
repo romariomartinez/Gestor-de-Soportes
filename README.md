@@ -25,17 +25,13 @@ http://127.0.0.1:8765/
 4. En `.env`, pega `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`.
 5. Reinicia el sistema con `.\start.ps1`.
 
-Con Supabase configurado, el sistema sincroniza usuarios, EPS, soportes, cortes, facturas, auditoría y PDFs. En otra PC, al iniciar con el mismo `.env`, restaura los registros desde Supabase y descarga los PDF cuando se consulten o descarguen.
+Con Supabase configurado, el sistema sincroniza usuarios, EPS, soportes, cortes, facturas y PDFs. En otra PC, al iniciar con el mismo `.env`, restaura los registros desde Supabase y descarga los PDF cuando se consulten o descarguen.
 
-Con `DATA_BACKEND=supabase`, Supabase es la base única del sistema. SQLite no se inicializa ni se usa para usuarios, soportes, EPS, reportes, cortes o auditoría.
+Con `DATA_BACKEND=supabase`, Supabase es la base única del sistema. SQLite no se inicializa ni se usa para usuarios, soportes, EPS, reportes o cortes.
 
-## Usuarios de prueba
+## Usuarios
 
-| Rol | Correo | Contraseña |
-| --- | --- | --- |
-| Administrador | admin@eps.local | admin123 |
-| Digitador | digitador@eps.local | digitador123 |
-| Consulta | consulta@eps.local | consulta123 |
+El ingreso se hace con nombre de usuario y contraseña. Las contraseñas no se listan ni se guardan en claro; el sistema almacena un hash seguro y permite cambiarlas desde la pantalla de usuarios.
 
 ## Funcionalidades incluidas
 
@@ -55,7 +51,7 @@ Con `DATA_BACKEND=supabase`, Supabase es la base única del sistema. SQLite no s
 - Reporte de EPS por corte, sumando facturas y soportes por cada EPS, con acceso directo al listado filtrado.
 - Visor PDF interno, descarga individual y descarga ZIP de todos los soportes filtrados.
 - Supabase como base de datos principal y Storage remoto para PDFs, pensado para cambio de PC/IP sin perder datos.
-- Administración de EPS, usuarios, configuración básica, reportes e historial de auditoría.
+- Administración de EPS, usuarios, configuración básica y reportes.
 
 ## Datos y archivos
 
