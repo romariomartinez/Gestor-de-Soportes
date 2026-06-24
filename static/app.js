@@ -170,8 +170,14 @@ function statusLabel(status) {
 }
 
 function collectForm(form) {
+  const candidate = form?.currentTarget || form?.target || form;
+  const element = candidate instanceof HTMLFormElement ? candidate : candidate?.closest?.("form");
+  if (!element) {
+    console.warn("No se pudo leer el formulario.", candidate);
+    return {};
+  }
   const data = {};
-  new FormData(form).forEach((value, key) => {
+  new FormData(element).forEach((value, key) => {
     data[key] = value;
   });
   return data;
@@ -617,14 +623,15 @@ async function saveSupport(event) {
   event.preventDefault();
   const id = event.currentTarget.dataset.id;
   try {
-    await api(`/api/supports/${id}`, { method: "PUT", body: collectForm(event.currentTarget) });
+    const formData = collectForm(event);
+    await api(`/api/supports/${id}`, { method: "PUT", body: formData });
     toast("Soporte guardado.", "success");
     closeModal("supportModal");
     await loadEps();
     await loadDashboard();
     if (state.activeView === "supports") await loadSupports();
     state.uploadResults = state.uploadResults.map((result) =>
-      result.item?.id === Number(id) ? { ...result, status: "guardado", missing: [], message: "Datos guardados correctamente.", item: { ...result.item, ...collectForm(event.currentTarget), status: "guardado" } } : result
+      result.item?.id === Number(id) ? { ...result, status: "guardado", missing: [], message: "Datos guardados correctamente.", item: { ...result.item, ...formData, status: "guardado" } } : result
     );
     renderUploadResults();
   } catch (error) {
@@ -732,7 +739,7 @@ function openEpsModal(eps = null) {
 
 async function saveEps(event) {
   event.preventDefault();
-  const data = collectForm(event.currentTarget);
+  const data = collectForm(event);
   data.active = data.active === "true";
   const id = event.currentTarget.dataset.id;
   try {
@@ -802,7 +809,7 @@ function openUserModal(user = null) {
 
 async function saveUser(event) {
   event.preventDefault();
-  const data = collectForm(event.currentTarget);
+  const data = collectForm(event);
   data.active = data.active === "true";
   const id = event.currentTarget.dataset.id;
   try {
@@ -912,7 +919,7 @@ function renderSettingsForm() {
 async function saveSettings(event) {
   event.preventDefault();
   try {
-    await api("/api/settings", { method: "PUT", body: collectForm(event.currentTarget) });
+    await api("/api/settings", { method: "PUT", body: collectForm(event) });
     toast("Configuración guardada.", "success");
     await loadSettings();
     await loadSupabaseStatus();
@@ -981,7 +988,7 @@ function bindEvents() {
   $("#loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
-      const session = await api("/api/login", { method: "POST", body: collectForm(event.currentTarget) });
+      const session = await api("/api/login", { method: "POST", body: collectForm(event) });
       await bootstrapApp(session);
       toast("Sesión iniciada.", "success");
     } catch (error) {
@@ -1086,7 +1093,7 @@ function bindEvents() {
 
   $("#supportFilters").addEventListener("submit", async (event) => {
     event.preventDefault();
-    state.supportFilters = collectForm(event.currentTarget);
+    state.supportFilters = collectForm(event);
     state.supportsPage = 1;
     await loadSupports();
   });
