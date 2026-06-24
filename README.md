@@ -29,6 +29,20 @@ Con Supabase configurado, el sistema sincroniza usuarios, EPS, soportes, cortes,
 
 Con `DATA_BACKEND=supabase`, Supabase es la base única del sistema. SQLite no se inicializa ni se usa para usuarios, soportes, EPS, reportes o cortes.
 
+## Subir a Vercel
+
+El proyecto incluye `vercel.json`, `api/index.py`, `requirements.txt` y `.python-version` para desplegarlo como una función Python en Vercel.
+
+En Vercel configura estas Environment Variables antes de desplegar:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_BUCKET=soportes-eps`
+- `DATA_BACKEND=supabase`
+- `SESSION_SECRET` con un texto largo y aleatorio
+
+No subas `.env` a GitHub. Las variables se configuran en el panel de Vercel o con la CLI.
+
 ## Usuarios
 
 El ingreso se hace con nombre de usuario y contraseña. Las contraseñas no se listan ni se guardan en claro; el sistema almacena un hash seguro y permite cambiarlas desde la pantalla de usuarios.

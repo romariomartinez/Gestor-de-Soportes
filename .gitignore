@@ -15,5 +15,6 @@ server.err
 .venv/
 venv/
 node_modules/
+.vercel/
 .DS_Store
 Thumbs.db

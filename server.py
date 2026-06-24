@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import cgi
+import base64
 import hashlib
 import hmac
 import json
@@ -199,6 +200,37 @@ def verify_password(password: str, stored: str) -> bool:
         return hmac.compare_digest(expected, digest_hex)
     except ValueError:
         return False
+
+
+def session_secret() -> str:
+    return os.environ.get("SESSION_SECRET") or SUPABASE_SERVICE_KEY or SUPABASE_PUBLISHABLE_KEY or "local-session-secret"
+
+
+def create_session_token(user_id: int, hours: int = 8) -> str:
+    expires = int(time.time() + hours * 60 * 60)
+    payload = f"{int(user_id)}:{expires}:{secrets.token_urlsafe(12)}"
+    encoded = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
+    signature = hmac.new(session_secret().encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).hexdigest()
+    return f"{encoded}.{signature}"
+
+
+def read_session_token(token: str | None) -> dict[str, int] | None:
+    if not token or "." not in token:
+        return None
+    encoded, signature = token.rsplit(".", 1)
+    expected = hmac.new(session_secret().encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        return None
+    try:
+        padding = "=" * (-len(encoded) % 4)
+        payload = base64.urlsafe_b64decode((encoded + padding).encode("ascii")).decode("utf-8")
+        user_id, expires, _nonce = payload.split(":", 2)
+        expires_int = int(expires)
+        if expires_int < time.time():
+            return None
+        return {"user_id": int(user_id), "expires": expires_int}
+    except (ValueError, UnicodeDecodeError):
+        return None
 
 
 def init_db() -> None:
@@ -1923,10 +1955,15 @@ class AppHandler(SimpleHTTPRequestHandler):
         token = self.current_session_token()
         session = SESSIONS.get(token or "")
         if not session or session["expires"] < time.time():
-            return self.error_json(401, "Sesión requerida")
-        session["expires"] = time.time() + 8 * 60 * 60
+            signed_session = read_session_token(token)
+            if not signed_session:
+                return self.error_json(401, "Sesión requerida")
+            user_id = int(signed_session["user_id"])
+        else:
+            session["expires"] = time.time() + 8 * 60 * 60
+            user_id = int(session["user_id"])
         if USE_SUPABASE_ONLY:
-            row = sb_find_by_id("app_users", int(session["user_id"]))
+            row = sb_find_by_id("app_users", user_id)
             if not row or int(row.get("active") or 0) != 1:
                 return self.error_json(401, "Usuario inactivo")
             return {
@@ -1939,7 +1976,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         with db() as conn:
             row = conn.execute(
                 "SELECT id, name, email, role, active, created_at FROM users WHERE id = ? AND active = 1",
-                (session["user_id"],),
+                (user_id,),
             ).fetchone()
         if not row:
             return self.error_json(401, "Usuario inactivo")
@@ -1953,10 +1990,15 @@ class AppHandler(SimpleHTTPRequestHandler):
         token = self.current_session_token()
         session = SESSIONS.get(token or "")
         if not session or session["expires"] < time.time():
-            return self.json_response({"authenticated": False})
-        session["expires"] = time.time() + 8 * 60 * 60
+            signed_session = read_session_token(token)
+            if not signed_session:
+                return self.json_response({"authenticated": False})
+            user_id = int(signed_session["user_id"])
+        else:
+            session["expires"] = time.time() + 8 * 60 * 60
+            user_id = int(session["user_id"])
         if USE_SUPABASE_ONLY:
-            row = sb_find_by_id("app_users", int(session["user_id"]))
+            row = sb_find_by_id("app_users", user_id)
             if not row or int(row.get("active") or 0) != 1:
                 return self.json_response({"authenticated": False})
             user = {
@@ -1976,7 +2018,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         with db() as conn:
             row = conn.execute(
                 "SELECT id, name, email, role, active, created_at FROM users WHERE id = ? AND active = 1",
-                (session["user_id"],),
+                (user_id,),
             ).fetchone()
         if not row:
             return self.json_response({"authenticated": False})
@@ -2009,7 +2051,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             )
             if not row or not verify_password(password, row["password_hash"]):
                 return self.error_json(401, "Usuario o contraseña incorrectos")
-            token = secrets.token_urlsafe(32)
+            token = create_session_token(int(row["id"]))
             SESSIONS[token] = {"user_id": row["id"], "expires": time.time() + 8 * 60 * 60}
             audit(conn, dict(row), "login", "user", row["id"], {"usuario": identifier}, self.client_address[0])
             conn.commit()
@@ -2055,7 +2097,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         )
         if not row or not verify_password(password, row.get("password_hash") or ""):
             return self.error_json(401, "Usuario o contraseña incorrectos")
-        token = secrets.token_urlsafe(32)
+        token = create_session_token(int(row["id"]))
         SESSIONS[token] = {"user_id": row["id"], "expires": time.time() + 8 * 60 * 60}
         user = {
             "id": row["id"],
