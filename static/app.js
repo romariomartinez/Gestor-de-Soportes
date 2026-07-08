@@ -831,7 +831,8 @@ async function loadReports() {
 function renderCutReport(data) {
   const cycle = data.cycle || {};
   state.cutCycle = cycle;
-  $("#cutCycleLabel").textContent = `Mes de trabajo: ${cycle.label || ""}`;
+  const cycleRange = cycle.start && cycle.end ? ` (${formatDate(cycle.start)} al ${formatDate(cycle.end)})` : "";
+  $("#cutCycleLabel").textContent = `Ciclo de cortes: ${cycle.label || ""}${cycleRange}`;
   $("#reportCuts").innerHTML = (data.items || [])
     .map((item) => {
       const max = Math.max(1, ...item.eps.map((row) => row.invoice_total));

@@ -1095,13 +1095,19 @@ def sb_filtered_supports(query: dict[str, list[str]]) -> list[dict[str, Any]]:
             return False
         if uploaded_by and row.get("uploaded_by_name") != uploaded_by:
             return False
-        if raw_year and str(row.get("year") or "") != raw_year:
-            return False
-        if raw_month and str(row.get("month") or "") != raw_month:
-            return False
         if corte and str(row.get("corte") or "") != corte:
             return False
         row_date = str(row.get("radication_date") or "")
+        cycle_range = cycle_filter_range(raw_year, raw_month, corte)
+        if cycle_range:
+            start, end = cycle_range
+            if not row_date or row_date < start or row_date > end:
+                return False
+        else:
+            if raw_year and str(row.get("year") or "") != raw_year:
+                return False
+            if raw_month and str(row.get("month") or "") != raw_month:
+                return False
         if date_from and row_date < date_from:
             return False
         if date_to and row_date > date_to:
@@ -1705,29 +1711,33 @@ def previous_month(year: int, month: int) -> tuple[int, int]:
     return (year - 1, 12) if month == 1 else (year, month - 1)
 
 
+def next_month(year: int, month: int) -> tuple[int, int]:
+    return (year + 1, 1) if month == 12 else (year, month + 1)
+
+
 def corte_ranges(year: int, month: int) -> list[dict[str, Any]]:
-    prev_year, prev_month = previous_month(year, month)
+    next_year, next_month_value = next_month(year, month)
     return [
         {
             "id": "1",
             "label": "Corte 1",
-            "detail": f"16 al 25 de {MONTH_NAMES[prev_month]}",
-            "start": datetime(prev_year, prev_month, 16).date().isoformat(),
-            "end": datetime(prev_year, prev_month, 25).date().isoformat(),
+            "detail": f"15 al 25 de {MONTH_NAMES[month]}",
+            "start": datetime(year, month, 15).date().isoformat(),
+            "end": datetime(year, month, 25).date().isoformat(),
         },
         {
             "id": "2",
             "label": "Corte 2",
-            "detail": f"26 de {MONTH_NAMES[prev_month]} al 5 de {MONTH_NAMES[month]}",
-            "start": datetime(prev_year, prev_month, 26).date().isoformat(),
-            "end": datetime(year, month, 5).date().isoformat(),
+            "detail": f"26 de {MONTH_NAMES[month]} al 5 de {MONTH_NAMES[next_month_value]}",
+            "start": datetime(year, month, 26).date().isoformat(),
+            "end": datetime(next_year, next_month_value, 5).date().isoformat(),
         },
         {
             "id": "3",
             "label": "Corte 3",
-            "detail": f"6 al 15 de {MONTH_NAMES[month]}",
-            "start": datetime(year, month, 6).date().isoformat(),
-            "end": datetime(year, month, 15).date().isoformat(),
+            "detail": f"6 al 15 de {MONTH_NAMES[next_month_value]}",
+            "start": datetime(next_year, next_month_value, 6).date().isoformat(),
+            "end": datetime(next_year, next_month_value, 15).date().isoformat(),
         },
     ]
 
@@ -1740,6 +1750,19 @@ def corte_range(year: int, month: int, corte: str) -> tuple[str, str] | None:
         if item["id"] == corte:
             return item["start"], item["end"]
     return None
+
+
+def cycle_filter_range(raw_year: str, raw_month: str, corte: str = "") -> tuple[str, str] | None:
+    if not (raw_year and raw_month):
+        return None
+    try:
+        year = int(raw_year)
+        month = int(raw_month)
+    except ValueError:
+        return None
+    if month < 1 or month > 12:
+        return None
+    return corte_range(year, month, corte or "ciclo")
 
 
 def parse_filters(query: dict[str, list[str]]) -> tuple[str, list[Any]]:
@@ -1759,12 +1782,19 @@ def parse_filters(query: dict[str, list[str]]) -> tuple[str, list[Any]]:
             clauses.append(f"{column} = ?")
             params.append(value)
 
-    if raw_year:
-        clauses.append("year = ?")
-        params.append(raw_year)
-    if raw_month:
-        clauses.append("month = ?")
-        params.append(raw_month)
+    cycle_range = cycle_filter_range(raw_year, raw_month, corte)
+    if cycle_range:
+        start, end = cycle_range
+        clauses.append("radication_date >= ?")
+        clauses.append("radication_date <= ?")
+        params.extend([start, end])
+    else:
+        if raw_year:
+            clauses.append("year = ?")
+            params.append(raw_year)
+        if raw_month:
+            clauses.append("month = ?")
+            params.append(raw_month)
     if corte:
         clauses.append("corte = ?")
         params.append(corte)
@@ -2726,12 +2756,17 @@ class AppHandler(SimpleHTTPRequestHandler):
         today = datetime.now()
         year = int((query.get("year") or [str(today.year)])[0] or today.year)
         month = int((query.get("month") or [str(today.month)])[0] or today.month)
-        rows = [row for row in sb_support_rows() if int(row.get("year") or 0) == year and int(row.get("month") or 0) == month]
+        rows = sb_support_rows()
+        ranges = corte_ranges(year, month)
         items = []
-        for corte_id, label in CORTE_LABELS.items():
+        for corte_item in ranges:
+            corte_id = corte_item["id"]
             grouped: dict[str, dict[str, Any]] = {}
             for row in rows:
                 if str(row.get("corte") or "") != corte_id:
+                    continue
+                row_date = str(row.get("radication_date") or "")
+                if not row_date or row_date < corte_item["start"] or row_date > corte_item["end"]:
                     continue
                 eps = row.get("eps_name") or "Sin EPS"
                 grouped.setdefault(eps, {"label": eps, "support_total": 0, "invoice_total": 0})
@@ -2741,14 +2776,26 @@ class AppHandler(SimpleHTTPRequestHandler):
             items.append(
                 {
                     "id": corte_id,
-                    "label": label,
-                    "detail": "Asignado manualmente al soporte",
+                    "label": corte_item["label"],
+                    "detail": corte_item["detail"],
                     "support_total": sum(item["support_total"] for item in eps_rows),
                     "invoice_total": sum(item["invoice_total"] for item in eps_rows),
                     "eps": eps_rows,
                 }
             )
-        self.json_response({"cycle": {"year": year, "month": month, "month_name": MONTH_NAMES[month], "label": f"{MONTH_NAMES[month]} {year}"}, "items": items})
+        self.json_response(
+            {
+                "cycle": {
+                    "year": year,
+                    "month": month,
+                    "month_name": MONTH_NAMES[month],
+                    "label": f"{MONTH_NAMES[month]} {year}",
+                    "start": ranges[0]["start"],
+                    "end": ranges[-1]["end"],
+                },
+                "items": items,
+            }
+        )
 
     def supabase_settings(self) -> None:
         self.json_response({"settings": {row["key"]: row["value"] for row in sb_all("settings")}})
@@ -3415,9 +3462,11 @@ class AppHandler(SimpleHTTPRequestHandler):
         today = datetime.now()
         year = int((query.get("year") or [str(today.year)])[0] or today.year)
         month = int((query.get("month") or [str(today.month)])[0] or today.month)
+        ranges = corte_ranges(year, month)
         with db() as conn:
             items = []
-            for corte_id, label in CORTE_LABELS.items():
+            for corte_item in ranges:
+                corte_id = corte_item["id"]
                 eps_rows = [
                     dict(row)
                     for row in conn.execute(
@@ -3428,13 +3477,13 @@ class AppHandler(SimpleHTTPRequestHandler):
                             COALESCE(SUM(invoice_count), 0) AS invoice_total
                         FROM supports
                         WHERE status != 'eliminado'
-                          AND year = ?
-                          AND month = ?
                           AND corte = ?
+                          AND radication_date >= ?
+                          AND radication_date <= ?
                         GROUP BY COALESCE(eps_name, 'Sin EPS')
                         ORDER BY invoice_total DESC, label
                         """,
-                        (year, month, corte_id),
+                        (corte_id, corte_item["start"], corte_item["end"]),
                     )
                 ]
                 invoice_total = sum(row["invoice_total"] for row in eps_rows)
@@ -3442,8 +3491,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                 items.append(
                     {
                         "id": corte_id,
-                        "label": label,
-                        "detail": "Asignado manualmente al soporte",
+                        "label": corte_item["label"],
+                        "detail": corte_item["detail"],
                         "support_total": support_total,
                         "invoice_total": invoice_total,
                         "eps": eps_rows,
@@ -3454,6 +3503,8 @@ class AppHandler(SimpleHTTPRequestHandler):
             "month": month,
             "month_name": MONTH_NAMES[month],
             "label": f"{MONTH_NAMES[month]} {year}",
+            "start": ranges[0]["start"],
+            "end": ranges[-1]["end"],
         }
         self.json_response({"cycle": cycle, "items": items})
 
