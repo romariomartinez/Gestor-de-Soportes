@@ -413,6 +413,7 @@ function supportsTable(rows, compact = false) {
             <th>Fecha radicación</th>
             <th>Fecha carga</th>
             <th>Usuario</th>
+            <th>Observaciones</th>
             <th>Estado</th>
             ${compact ? "" : "<th>Acciones</th>"}
           </tr>
@@ -428,6 +429,7 @@ function supportsTable(rows, compact = false) {
                 <td>${formatDate(row.radication_date)}</td>
                 <td>${formatDateTime(row.uploaded_at)}</td>
                 <td>${escapeHtml(row.uploaded_by_name)}</td>
+                <td class="observations-cell" title="${escapeHtml(row.observations || "Sin observaciones")}">${escapeHtml(row.observations || "Sin observaciones")}</td>
                 <td><span class="status-pill ${statusClass(row.status)}">${statusLabel(row.status)}</span></td>
                 ${compact ? "" : `<td>${supportActions(row)}</td>`}
               </tr>`

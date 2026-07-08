@@ -520,7 +520,7 @@ textarea:focus {
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 900px;
+  min-width: 1050px;
 }
 
 .compact-table table {
@@ -551,6 +551,13 @@ th {
 td {
   color: #1d2738;
   font-size: 13px;
+}
+
+.observations-cell {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .row-actions {
