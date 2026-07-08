@@ -193,6 +193,29 @@ function epsOptions(selected = "") {
   return options.join("");
 }
 
+function isImageUrl(value) {
+  return /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(String(value || ""));
+}
+
+function isSafeWebUrl(value) {
+  try {
+    return ["http:", "https:"].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
+function logoCell(url) {
+  const cleanUrl = String(url || "").trim();
+  if (!cleanUrl) return '<span class="muted">Sin logo</span>';
+  if (!isSafeWebUrl(cleanUrl)) return '<span class="muted">URL inválida</span>';
+  const safeUrl = escapeHtml(cleanUrl);
+  if (isImageUrl(cleanUrl)) {
+    return `<a class="eps-logo-link" href="${safeUrl}" target="_blank" rel="noopener"><img class="eps-logo" src="${safeUrl}" alt="Logo EPS"></a>`;
+  }
+  return `<a class="text-link" href="${safeUrl}" target="_blank" rel="noopener">Abrir URL</a>`;
+}
+
 function monthOptions(selected = "") {
   return MONTHS.map(([value, label]) => `<option value="${value}" ${String(selected) === value ? "selected" : ""}>${label}</option>`).join("");
 }
@@ -680,7 +703,7 @@ function renderEpsTable() {
   $("#epsTable").innerHTML = `
     <div class="table-shell">
       <table>
-        <thead><tr><th>EPS</th><th>NIT</th><th>Código</th><th>Soportes</th><th>Estado</th>${canManage ? "<th>Acciones</th>" : ""}</tr></thead>
+        <thead><tr><th>EPS</th><th>NIT</th><th>Código</th><th>Logo</th><th>Soportes</th><th>Estado</th>${canManage ? "<th>Acciones</th>" : ""}</tr></thead>
         <tbody>
           ${state.eps
             .map(
@@ -689,6 +712,7 @@ function renderEpsTable() {
                 <td><span class="badge-dot" style="--primary:${escapeHtml(eps.color || "#1457e8")}">${escapeHtml(eps.name)}</span></td>
                 <td>${escapeHtml(eps.nit || "")}</td>
                 <td>${escapeHtml(eps.code || "")}</td>
+                <td>${logoCell(eps.logo_url)}</td>
                 <td>${formatNumber(eps.support_count)}</td>
                 <td><span class="status-pill ${eps.active ? "" : "deleted"}">${eps.active ? "Activa" : "Inactiva"}</span></td>
                 ${
@@ -716,7 +740,7 @@ function openEpsModal(eps = null) {
     <label>NIT<input name="nit" value="${escapeHtml(eps?.nit || "")}"></label>
     <label>Código interno<input name="code" value="${escapeHtml(eps?.code || "")}"></label>
     <label>Color<input type="color" name="color" value="${escapeHtml(eps?.color || "#1769e0")}"></label>
-    <label>Logo URL<input name="logo_url" value="${escapeHtml(eps?.logo_url || "")}"></label>
+    <label>Logo URL<input name="logo_url" value="${escapeHtml(eps?.logo_url || "")}" placeholder="https://sitio.com/logo.png"></label>
     <label>Alias de detección<textarea name="aliases" placeholder="Separados por coma">${escapeHtml(eps?.aliases || "")}</textarea></label>
     <label><span>Activa</span><select name="active"><option value="true" ${eps?.active !== 0 ? "selected" : ""}>Sí</option><option value="false" ${eps?.active === 0 ? "selected" : ""}>No</option></select></label>
     <div class="form-actions">

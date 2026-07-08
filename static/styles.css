@@ -513,6 +513,16 @@ textarea:focus {
   color: var(--muted);
 }
 
+.text-link {
+  color: var(--primary-dark);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.text-link:hover {
+  text-decoration: underline;
+}
+
 .table-shell {
   overflow-x: auto;
 }
@@ -558,6 +568,20 @@ td {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.eps-logo-link {
+  display: inline-flex;
+  align-items: center;
+}
+
+.eps-logo {
+  width: 46px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  object-fit: contain;
+  background: #fff;
 }
 
 .row-actions {
