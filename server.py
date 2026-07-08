@@ -215,6 +215,10 @@ def hash_password(password: str, salt: bytes | None = None) -> str:
     return f"{salt.hex()}:{digest.hex()}"
 
 
+def support_upload_fingerprint(content: bytes) -> str:
+    return f"{hashlib.sha256(content).hexdigest()}:{uuid.uuid4().hex}"
+
+
 def verify_password(password: str, stored: str) -> bool:
     try:
         salt_hex, digest_hex = stored.split(":", 1)
@@ -2414,7 +2418,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 results.append({"filename": original, "status": "rechazado", "message": "El PDF supera el limite de 25 MB."})
                 continue
 
-            sha = hashlib.sha256(content).hexdigest()
+            sha = support_upload_fingerprint(content)
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 temp_path = Path(tmp.name)
                 tmp.write(content)
@@ -2422,14 +2426,6 @@ class AppHandler(SimpleHTTPRequestHandler):
                 metadata = extract_metadata(temp_path, None)
             finally:
                 temp_path.unlink(missing_ok=True)
-
-            duplicate = self.supabase_find_duplicate(original, sha, metadata.get("radicado"))
-            if duplicate:
-                if duplicate.get("status") == "eliminado" and duplicate.get("sha256") == sha:
-                    results.append(self.supabase_restore_deleted_support(user, duplicate, original, sha, content, metadata))
-                    continue
-                results.append(self.supabase_duplicate_upload_result(user, original, duplicate))
-                continue
 
             eps_row = sb_get_or_create_eps(metadata["eps_name"], metadata.get("nit_eps")) if metadata["eps_name"] else None
             if eps_row:
@@ -2442,45 +2438,35 @@ class AppHandler(SimpleHTTPRequestHandler):
                 dt = datetime.strptime(metadata["radication_date"], "%Y-%m-%d")
                 year, month = dt.year, dt.month
             client.upload_object(storage_path, content)
-            try:
-                row = client.rest_insert(
-                    "supports",
-                    {
-                        "original_filename": original,
-                        "stored_filename": Path(storage_path).name,
-                        "path": storage_path,
-                        "storage_path": storage_path,
-                        "eps_id": metadata.get("eps_id"),
-                        "eps_name": metadata.get("eps_name") or None,
-                        "radication_date": metadata.get("radication_date") or None,
-                        "radicado": metadata.get("radicado") or None,
-                        "factura": metadata.get("factura") or None,
-                        "corte": metadata.get("corte") or None,
-                        "invoice_count": metadata.get("invoice_count") or 0,
-                        "invoice_numbers": metadata.get("invoice_numbers") or None,
-                        "nit_eps": metadata.get("nit_eps") or None,
-                        "valor_radicado": metadata.get("valor_radicado") or None,
-                        "year": year,
-                        "month": month,
-                        "uploaded_at": now_iso(),
-                        "uploaded_by": user["id"],
-                        "uploaded_by_name": user["name"],
-                        "size_bytes": len(content),
-                        "sha256": sha,
-                        "status": metadata["status"],
-                        "observations": "",
-                        "extracted_text": metadata["extracted_text"],
-                    },
-                )
-            except RuntimeError as exc:
-                if "23505" in str(exc) or "duplicate key value" in str(exc).lower() or "supports_sha256_key" in str(exc):
-                    duplicate = self.supabase_find_duplicate(original, sha, metadata.get("radicado")) or {"reason": "hash", "sha256": sha}
-                    if duplicate.get("status") == "eliminado" and duplicate.get("sha256") == sha:
-                        results.append(self.supabase_restore_deleted_support(user, duplicate, original, sha, content, metadata))
-                        continue
-                    results.append(self.supabase_duplicate_upload_result(user, original, duplicate))
-                    continue
-                raise
+            row = client.rest_insert(
+                "supports",
+                {
+                    "original_filename": original,
+                    "stored_filename": Path(storage_path).name,
+                    "path": storage_path,
+                    "storage_path": storage_path,
+                    "eps_id": metadata.get("eps_id"),
+                    "eps_name": metadata.get("eps_name") or None,
+                    "radication_date": metadata.get("radication_date") or None,
+                    "radicado": metadata.get("radicado") or None,
+                    "factura": metadata.get("factura") or None,
+                    "corte": metadata.get("corte") or None,
+                    "invoice_count": metadata.get("invoice_count") or 0,
+                    "invoice_numbers": metadata.get("invoice_numbers") or None,
+                    "nit_eps": metadata.get("nit_eps") or None,
+                    "valor_radicado": metadata.get("valor_radicado") or None,
+                    "year": year,
+                    "month": month,
+                    "uploaded_at": now_iso(),
+                    "uploaded_by": user["id"],
+                    "uploaded_by_name": user["name"],
+                    "size_bytes": len(content),
+                    "sha256": sha,
+                    "status": metadata["status"],
+                    "observations": "",
+                    "extracted_text": metadata["extracted_text"],
+                },
+            )
             sb_audit(user, "upload_pdf", "support", row.get("id"), {"filename": original, "status": metadata["status"], "missing": metadata["missing"]}, self.client_address[0])
             results.append(
                 {
@@ -2520,10 +2506,6 @@ class AppHandler(SimpleHTTPRequestHandler):
                 year, month = dt.year, dt.month
             except ValueError:
                 return self.error_json(400, "La fecha de radicacion no es valida")
-        if radicado:
-            duplicate = self.supabase_find_duplicate(row.get("original_filename") or "", row.get("sha256") or "", radicado, exclude_id=support_id)
-            if duplicate and str(duplicate.get("radicado") or "").lower() == radicado.lower():
-                return self.error_json(409, "Ya existe un soporte con ese numero de radicado")
         eps_row = sb_get_or_create_eps(eps_name, nit_eps) if eps_name else None
         existing_paths = {supabase_path(item.get("path")) for item in sb_support_rows(include_deleted=True) if int(item.get("id") or 0) != support_id}
         new_path = sb_support_storage_path({"eps_name": eps_name, "radication_date": radication_date}, row["original_filename"], radicado or row.get("radicado"), existing_paths)
@@ -2937,33 +2919,11 @@ class AppHandler(SimpleHTTPRequestHandler):
                     results.append({"filename": original, "status": "rechazado", "message": "El PDF supera el límite de 25 MB."})
                     continue
 
-                sha = hashlib.sha256(content).hexdigest()
+                sha = support_upload_fingerprint(content)
                 temp_path = STORAGE_DIR / "pendientes" / f"{uuid.uuid4().hex}_{slugify(original)}"
                 temp_path.parent.mkdir(parents=True, exist_ok=True)
                 temp_path.write_bytes(content)
                 metadata = extract_metadata(temp_path, conn)
-
-                duplicate = self.find_duplicate(conn, original, sha, metadata.get("radicado"))
-                if duplicate:
-                    temp_path.unlink(missing_ok=True)
-                    audit(
-                        conn,
-                        user,
-                        "duplicate_pdf",
-                        "support",
-                        duplicate["id"],
-                        {"filename": original, "duplicate_by": duplicate["reason"]},
-                        self.client_address[0],
-                    )
-                    results.append(
-                        {
-                            "filename": original,
-                            "status": "duplicado",
-                            "message": "Este soporte ya fue cargado anteriormente.",
-                            "duplicate": duplicate,
-                        }
-                    )
-                    continue
 
                 eps_row = get_or_create_eps(conn, metadata["eps_name"], metadata.get("nit_eps")) if metadata["eps_name"] else None
                 if eps_row:
@@ -3096,18 +3056,6 @@ class AppHandler(SimpleHTTPRequestHandler):
                     return self.error_json(400, "La fecha de radicación no es válida")
             else:
                 year = month = None
-
-            if radicado:
-                dup = conn.execute(
-                    """
-                    SELECT id, original_filename FROM supports
-                    WHERE id != ? AND status != 'eliminado' AND lower(radicado) = lower(?)
-                    LIMIT 1
-                    """,
-                    (support_id, radicado),
-                ).fetchone()
-                if dup:
-                    return self.error_json(409, "Ya existe un soporte con ese número de radicado")
 
             eps_row = get_or_create_eps(conn, eps_name, nit_eps) if eps_name else None
             current_path = (BASE_DIR / row["path"]).resolve()
