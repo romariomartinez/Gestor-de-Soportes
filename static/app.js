@@ -583,15 +583,9 @@ function supportFormHtml(item, missing = []) {
     <label>Facturas detectadas
       <input type="number" min="0" name="invoice_count" value="${escapeHtml(item.invoice_count || 0)}">
     </label>
-    <label>No. Radicado
-      <input name="radicado" value="${escapeHtml(item.radicado || "")}" placeholder="RAD-2026-0001">
-    </label>
-    <label>No. Factura
-      <input name="factura" value="${escapeHtml(item.factura || "")}" placeholder="FE-000000">
-    </label>
-    <label>NIT EPS
-      <input name="nit_eps" value="${escapeHtml(item.nit_eps || "")}">
-    </label>
+    <input type="hidden" name="radicado" value="${escapeHtml(item.radicado || "")}">
+    <input type="hidden" name="factura" value="${escapeHtml(item.factura || "")}">
+    <input type="hidden" name="nit_eps" value="${escapeHtml(item.nit_eps || "")}">
     <label>Valor radicado
       <input name="valor_radicado" value="${escapeHtml(item.valor_radicado || "")}" placeholder="$ 0">
     </label>
