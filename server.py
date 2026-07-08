@@ -64,6 +64,7 @@ SUPABASE_SERVICE_KEY = (
 SUPABASE_BUCKET = os.environ.get("SUPABASE_BUCKET", "soportes-eps")
 SUPABASE_PULL_ON_START = os.environ.get("SUPABASE_PULL_ON_START", "1").lower() not in {"0", "false", "no"}
 SUPABASE_SYNC_ON_WRITE = os.environ.get("SUPABASE_SYNC_ON_WRITE", "1").lower() not in {"0", "false", "no"}
+KEEPALIVE_SECRET = os.environ.get("KEEPALIVE_SECRET", "").strip()
 DATA_BACKEND = os.environ.get("DATA_BACKEND", "supabase").strip().lower()
 USE_SUPABASE_ONLY = DATA_BACKEND == "supabase"
 
@@ -1864,6 +1865,8 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self.login()
         if path == "/api/session" and self.command == "GET":
             return self.session_status()
+        if path == "/api/keepalive" and self.command == "GET":
+            return self.keepalive(query)
 
         user = self.require_user()
         if user is None:
@@ -1972,6 +1975,31 @@ class AppHandler(SimpleHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length) if length else b"{}"
         return json.loads(raw.decode("utf-8") or "{}")
+
+    def keepalive_authorized(self, query: dict[str, list[str]]) -> bool:
+        token = (query.get("token") or [""])[0]
+        if KEEPALIVE_SECRET and hmac.compare_digest(token, KEEPALIVE_SECRET):
+            return True
+        user_agent = self.headers.get("User-Agent", "")
+        cron_schedule = self.headers.get("x-vercel-cron-schedule", "")
+        return user_agent == "vercel-cron/1.0" or bool(cron_schedule)
+
+    def keepalive(self, query: dict[str, list[str]]) -> None:
+        if not self.keepalive_authorized(query):
+            return self.error_json(403, "Keepalive no autorizado")
+        if not supabase_enabled():
+            return self.error_json(503, supabase_config_message())
+
+        started = time.time()
+        SupabaseClient().rest_select("settings", {"select": "key", "limit": "1"})
+        self.json_response(
+            {
+                "ok": True,
+                "backend": DATA_BACKEND,
+                "checked_at": now_iso(),
+                "latency_ms": int((time.time() - started) * 1000),
+            }
+        )
 
     def current_session_token(self) -> str | None:
         cookie_header = self.headers.get("Cookie")

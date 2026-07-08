@@ -40,8 +40,23 @@ En Vercel configura estas Environment Variables antes de desplegar:
 - `SUPABASE_BUCKET=soportes-eps`
 - `DATA_BACKEND=supabase`
 - `SESSION_SECRET` con un texto largo y aleatorio
+- Opcional: `KEEPALIVE_SECRET` si vas a llamar `/api/keepalive?token=...` desde un monitor externo.
 
 No uses `SUPABASE_KEY` ni una llave `sb_publishable_...` para `SUPABASE_SERVICE_ROLE_KEY`, porque Supabase la trata como rol `anon` y bloqueará tablas privadas como `app_users`. No subas `.env` a GitHub. Las variables se configuran en el panel de Vercel o con la CLI.
+
+## Evitar pausa por inactividad en Supabase
+
+Los proyectos gratuitos de Supabase pueden pausarse tras varios dias sin actividad. Este proyecto incluye un keep-alive para reducir ese riesgo cuando esta desplegado en Vercel:
+
+- `vercel.json` programa un Cron Job cada 3 dias.
+- Vercel llama `GET /api/keepalive`.
+- El endpoint hace una consulta minima a Supabase y no devuelve datos privados.
+
+Si no usas Vercel Cron, puedes configurar un monitor externo para visitar:
+
+```text
+https://TU-DOMINIO/api/keepalive?token=EL_VALOR_DE_KEEPALIVE_SECRET
+```
 
 ## Usuarios
 
