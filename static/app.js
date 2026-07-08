@@ -379,7 +379,6 @@ function supportsTable(rows, compact = false) {
           <thead>
             <tr>
               <th>EPS</th>
-              <th>No. Radicado</th>
               <th>Corte</th>
               <th>Facturas</th>
               <th>Fecha radicación</th>
@@ -392,7 +391,6 @@ function supportsTable(rows, compact = false) {
                 (row) => `
                 <tr>
                   <td><span class="badge-dot">${escapeHtml(row.eps_name || "Sin EPS")}</span></td>
-                  <td>${escapeHtml(row.radicado || "Pendiente")}</td>
                   <td>${escapeHtml(row.corte_label || "Sin corte")}</td>
                   <td>${formatNumber(row.invoice_count || 0)}</td>
                   <td>${formatDate(row.radication_date)}</td>
@@ -410,8 +408,6 @@ function supportsTable(rows, compact = false) {
         <thead>
           <tr>
             <th>EPS</th>
-            <th>No. Radicado</th>
-            <th>Factura</th>
             <th>Corte</th>
             <th>Facturas</th>
             <th>Fecha radicación</th>
@@ -427,8 +423,6 @@ function supportsTable(rows, compact = false) {
               (row) => `
               <tr>
                 <td><span class="badge-dot">${escapeHtml(row.eps_name || "Sin EPS")}</span></td>
-                <td>${escapeHtml(row.radicado || "Pendiente")}</td>
-                <td>${escapeHtml(row.factura || "Sin dato")}</td>
                 <td>${escapeHtml(row.corte_label || "Sin corte")}</td>
                 <td>${formatNumber(row.invoice_count || 0)}</td>
                 <td>${formatDate(row.radication_date)}</td>
