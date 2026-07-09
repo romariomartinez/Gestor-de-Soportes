@@ -1538,7 +1538,9 @@ def extract_invoice_numbers(text: str, factura: str | None = None) -> tuple[list
 
     processed_match = re.search(r"cargue\s+exitoso\s*:\s*(\d+)\s+facturas\s+procesadas", text, re.IGNORECASE)
     processed_count = int(processed_match.group(1)) if processed_match else 0
-    return numbers, max(processed_count, len(numbers), 1 if factura else 0)
+    if numbers:
+        return numbers, len(numbers)
+    return numbers, processed_count or (1 if factura else 0)
 
 
 def find_eps_from_text(text: str, eps_rows: list[sqlite3.Row]) -> dict[str, Any] | None:
