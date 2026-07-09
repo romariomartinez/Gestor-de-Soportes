@@ -1149,12 +1149,11 @@ def sb_group_counts(rows: list[dict[str, Any]], key: str) -> list[dict[str, Any]
 
 
 def sb_month_year(row: dict[str, Any]) -> tuple[int | None, int | None]:
+    year, month = support_cycle_year_month(str(row.get("radication_date") or ""), str(row.get("corte") or ""))
+    if year and month:
+        return year, month
     if row.get("year") and row.get("month"):
         return int(row["year"]), int(row["month"])
-    date_value = row.get("radication_date")
-    if date_value:
-        dt = datetime.strptime(str(date_value), "%Y-%m-%d")
-        return dt.year, dt.month
     return None, None
 
 
@@ -1765,6 +1764,21 @@ def cycle_filter_range(raw_year: str, raw_month: str, corte: str = "") -> tuple[
     return corte_range(year, month, corte or "ciclo")
 
 
+def support_cycle_year_month(radication_date: str | None, corte: str | None) -> tuple[int | None, int | None]:
+    if not radication_date:
+        return None, None
+    try:
+        dt = datetime.strptime(radication_date, "%Y-%m-%d")
+    except ValueError:
+        return None, None
+    corte_value = str(corte or "")
+    if corte_value == "2" and dt.day <= 5:
+        return previous_month(dt.year, dt.month)
+    if corte_value == "3":
+        return previous_month(dt.year, dt.month)
+    return dt.year, dt.month
+
+
 def parse_filters(query: dict[str, list[str]]) -> tuple[str, list[Any]]:
     clauses = ["status != 'eliminado'"]
     params: list[Any] = []
@@ -2357,10 +2371,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         if eps_row:
             metadata["eps_id"] = eps_row["id"]
             metadata["eps_name"] = eps_row["name"]
-        year = month = None
-        if metadata.get("radication_date"):
-            dt = datetime.strptime(metadata["radication_date"], "%Y-%m-%d")
-            year, month = dt.year, dt.month
+        year, month = support_cycle_year_month(metadata.get("radication_date"), metadata.get("corte"))
         deleted_id = int(deleted.get("id") or 0)
         existing_paths = {
             supabase_path(row.get("path"))
@@ -2463,10 +2474,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 metadata["eps_name"] = eps_row["name"]
             existing_paths = {supabase_path(row.get("path")) for row in sb_support_rows(include_deleted=True)}
             storage_path = sb_support_storage_path(metadata, original, metadata.get("radicado"), existing_paths)
-            year = month = None
-            if metadata.get("radication_date"):
-                dt = datetime.strptime(metadata["radication_date"], "%Y-%m-%d")
-                year, month = dt.year, dt.month
+            year, month = support_cycle_year_month(metadata.get("radication_date"), metadata.get("corte"))
             client.upload_object(storage_path, content)
             row = client.rest_insert(
                 "supports",
@@ -2529,11 +2537,10 @@ class AppHandler(SimpleHTTPRequestHandler):
         except ValueError:
             return self.error_json(400, "La cantidad de facturas debe ser numerica")
         status = "guardado" if eps_name and radication_date and corte else "pendiente_revision"
-        year = month = None
+        year, month = support_cycle_year_month(radication_date, corte)
         if radication_date:
             try:
-                dt = datetime.strptime(radication_date, "%Y-%m-%d")
-                year, month = dt.year, dt.month
+                datetime.strptime(radication_date, "%Y-%m-%d")
             except ValueError:
                 return self.error_json(400, "La fecha de radicacion no es valida")
         eps_row = sb_get_or_create_eps(eps_name, nit_eps) if eps_name else None
@@ -2981,10 +2988,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 if final_path != temp_path:
                     shutil.move(str(temp_path), str(final_path))
 
-                year = month = None
-                if metadata.get("radication_date"):
-                    dt = datetime.strptime(metadata["radication_date"], "%Y-%m-%d")
-                    year, month = dt.year, dt.month
+                year, month = support_cycle_year_month(metadata.get("radication_date"), metadata.get("corte"))
 
                 cursor = conn.execute(
                     """
@@ -3095,10 +3099,10 @@ class AppHandler(SimpleHTTPRequestHandler):
             else:
                 status = "guardado"
 
+            year, month = support_cycle_year_month(radication_date, corte)
             if radication_date:
                 try:
-                    dt = datetime.strptime(radication_date, "%Y-%m-%d")
-                    year, month = dt.year, dt.month
+                    datetime.strptime(radication_date, "%Y-%m-%d")
                 except ValueError:
                     return self.error_json(400, "La fecha de radicación no es válida")
             else:
