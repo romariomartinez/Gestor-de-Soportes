@@ -220,6 +220,17 @@ function monthOptions(selected = "") {
   return MONTHS.map(([value, label]) => `<option value="${value}" ${String(selected) === value ? "selected" : ""}>${label}</option>`).join("");
 }
 
+function supportMonthOptions(selected = "") {
+  const options = [["", "Seleccionar mes"], ...MONTHS.filter(([value]) => value)];
+  return options.map(([value, label]) => `<option value="${value}" ${String(selected) === value ? "selected" : ""}>${label}</option>`).join("");
+}
+
+function supportYearOptions(selected = "") {
+  const current = new Date().getFullYear();
+  const years = Array.from(new Set([Number(selected), current - 1, current, current + 1, ...state.years].filter(Boolean))).sort((a, b) => b - a);
+  return [`<option value="">Seleccionar año</option>`, ...years.map((year) => `<option value="${year}" ${String(selected) === String(year) ? "selected" : ""}>${year}</option>`)].join("");
+}
+
 function corteOptions(selected = "") {
   return [
     ["", "Todos"],
@@ -599,6 +610,12 @@ function supportFormHtml(item, missing = []) {
     <label class="${missingClass("corte")}">Corte *
       <select name="corte" required>${corteFormOptions(item.corte || "")}</select>
     </label>
+    <label class="${missingClass("year")}">Año del corte *
+      <select name="year" required>${supportYearOptions(item.year || "")}</select>
+    </label>
+    <label class="${missingClass("month")}">Mes del corte *
+      <select name="month" required>${supportMonthOptions(item.month || "")}</select>
+    </label>
     <label>Facturas detectadas
       <input type="number" min="0" name="invoice_count" value="${escapeHtml(item.invoice_count || 0)}">
     </label>
@@ -623,6 +640,8 @@ async function openSupportModal(item, missing = []) {
     if (!fresh.eps_name) missing.push("eps_name");
     if (!fresh.radication_date) missing.push("radication_date");
     if (!fresh.corte) missing.push("corte");
+    if (!fresh.year) missing.push("year");
+    if (!fresh.month) missing.push("month");
   }
   $("#supportModalTitle").textContent = fresh.status === "pendiente_revision" ? "Completar datos del soporte" : "Editar datos del soporte";
   $("#supportForm").dataset.id = fresh.id;

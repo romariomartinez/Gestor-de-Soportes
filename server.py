@@ -1098,16 +1098,10 @@ def sb_filtered_supports(query: dict[str, list[str]]) -> list[dict[str, Any]]:
         if corte and str(row.get("corte") or "") != corte:
             return False
         row_date = str(row.get("radication_date") or "")
-        cycle_range = cycle_filter_range(raw_year, raw_month, corte)
-        if cycle_range:
-            start, end = cycle_range
-            if not row_date or row_date < start or row_date > end:
-                return False
-        else:
-            if raw_year and str(row.get("year") or "") != raw_year:
-                return False
-            if raw_month and str(row.get("month") or "") != raw_month:
-                return False
+        if raw_year and str(row.get("year") or "") != raw_year:
+            return False
+        if raw_month and str(row.get("month") or "") != raw_month:
+            return False
         if date_from and row_date < date_from:
             return False
         if date_to and row_date > date_to:
@@ -1149,11 +1143,11 @@ def sb_group_counts(rows: list[dict[str, Any]], key: str) -> list[dict[str, Any]
 
 
 def sb_month_year(row: dict[str, Any]) -> tuple[int | None, int | None]:
+    if row.get("year") and row.get("month"):
+        return int(row["year"]), int(row["month"])
     year, month = support_cycle_year_month(str(row.get("radication_date") or ""), str(row.get("corte") or ""))
     if year and month:
         return year, month
-    if row.get("year") and row.get("month"):
-        return int(row["year"]), int(row["month"])
     return None, None
 
 
@@ -1779,6 +1773,30 @@ def support_cycle_year_month(radication_date: str | None, corte: str | None) -> 
     return dt.year, dt.month
 
 
+def parse_support_cycle_fields(payload: dict[str, Any]) -> tuple[int | None, int | None]:
+    raw_year = str(payload.get("year") or "").strip()
+    raw_month = str(payload.get("month") or "").strip()
+    if not (raw_year and raw_month):
+        return None, None
+    try:
+        year = int(raw_year)
+        month = int(raw_month)
+    except ValueError as exc:
+        raise ValueError("El año y mes del corte deben ser numericos") from exc
+    if month < 1 or month > 12:
+        raise ValueError("El mes del corte no es valido")
+    return year, month
+
+
+def require_manual_cycle(metadata: dict[str, Any]) -> None:
+    missing = list(metadata.get("missing") or [])
+    for field in ["year", "month"]:
+        if field not in missing:
+            missing.append(field)
+    metadata["missing"] = missing
+    metadata["status"] = "pendiente_revision"
+
+
 def parse_filters(query: dict[str, list[str]]) -> tuple[str, list[Any]]:
     clauses = ["status != 'eliminado'"]
     params: list[Any] = []
@@ -1796,19 +1814,12 @@ def parse_filters(query: dict[str, list[str]]) -> tuple[str, list[Any]]:
             clauses.append(f"{column} = ?")
             params.append(value)
 
-    cycle_range = cycle_filter_range(raw_year, raw_month, corte)
-    if cycle_range:
-        start, end = cycle_range
-        clauses.append("radication_date >= ?")
-        clauses.append("radication_date <= ?")
-        params.extend([start, end])
-    else:
-        if raw_year:
-            clauses.append("year = ?")
-            params.append(raw_year)
-        if raw_month:
-            clauses.append("month = ?")
-            params.append(raw_month)
+    if raw_year:
+        clauses.append("year = ?")
+        params.append(raw_year)
+    if raw_month:
+        clauses.append("month = ?")
+        params.append(raw_month)
     if corte:
         clauses.append("corte = ?")
         params.append(corte)
@@ -2371,7 +2382,8 @@ class AppHandler(SimpleHTTPRequestHandler):
         if eps_row:
             metadata["eps_id"] = eps_row["id"]
             metadata["eps_name"] = eps_row["name"]
-        year, month = support_cycle_year_month(metadata.get("radication_date"), metadata.get("corte"))
+        require_manual_cycle(metadata)
+        year = month = None
         deleted_id = int(deleted.get("id") or 0)
         existing_paths = {
             supabase_path(row.get("path"))
@@ -2467,6 +2479,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 metadata = extract_metadata(temp_path, None)
             finally:
                 temp_path.unlink(missing_ok=True)
+            require_manual_cycle(metadata)
 
             eps_row = sb_get_or_create_eps(metadata["eps_name"], metadata.get("nit_eps")) if metadata["eps_name"] else None
             if eps_row:
@@ -2474,7 +2487,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 metadata["eps_name"] = eps_row["name"]
             existing_paths = {supabase_path(row.get("path")) for row in sb_support_rows(include_deleted=True)}
             storage_path = sb_support_storage_path(metadata, original, metadata.get("radicado"), existing_paths)
-            year, month = support_cycle_year_month(metadata.get("radication_date"), metadata.get("corte"))
+            year = month = None
             client.upload_object(storage_path, content)
             row = client.rest_insert(
                 "supports",
@@ -2534,10 +2547,10 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self.error_json(400, "El corte debe ser 1, 2 o 3")
         try:
             invoice_count = max(0, int((payload.get("invoice_count") or row.get("invoice_count") or 0)))
+            year, month = parse_support_cycle_fields(payload)
         except ValueError:
-            return self.error_json(400, "La cantidad de facturas debe ser numerica")
-        status = "guardado" if eps_name and radication_date and corte else "pendiente_revision"
-        year, month = support_cycle_year_month(radication_date, corte)
+            return self.error_json(400, "La cantidad de facturas, año y mes del corte deben ser validos")
+        status = "guardado" if eps_name and radication_date and corte and year and month else "pendiente_revision"
         if radication_date:
             try:
                 datetime.strptime(radication_date, "%Y-%m-%d")
@@ -2763,17 +2776,14 @@ class AppHandler(SimpleHTTPRequestHandler):
         today = datetime.now()
         year = int((query.get("year") or [str(today.year)])[0] or today.year)
         month = int((query.get("month") or [str(today.month)])[0] or today.month)
-        rows = sb_support_rows()
         ranges = corte_ranges(year, month)
+        rows = [row for row in sb_support_rows() if int(row.get("year") or 0) == year and int(row.get("month") or 0) == month]
         items = []
         for corte_item in ranges:
             corte_id = corte_item["id"]
             grouped: dict[str, dict[str, Any]] = {}
             for row in rows:
                 if str(row.get("corte") or "") != corte_id:
-                    continue
-                row_date = str(row.get("radication_date") or "")
-                if not row_date or row_date < corte_item["start"] or row_date > corte_item["end"]:
                     continue
                 eps = row.get("eps_name") or "Sin EPS"
                 grouped.setdefault(eps, {"label": eps, "support_total": 0, "invoice_total": 0})
@@ -2978,6 +2988,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 temp_path.parent.mkdir(parents=True, exist_ok=True)
                 temp_path.write_bytes(content)
                 metadata = extract_metadata(temp_path, conn)
+                require_manual_cycle(metadata)
 
                 eps_row = get_or_create_eps(conn, metadata["eps_name"], metadata.get("nit_eps")) if metadata["eps_name"] else None
                 if eps_row:
@@ -2988,7 +2999,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 if final_path != temp_path:
                     shutil.move(str(temp_path), str(final_path))
 
-                year, month = support_cycle_year_month(metadata.get("radication_date"), metadata.get("corte"))
+                year = month = None
 
                 cursor = conn.execute(
                     """
@@ -3091,15 +3102,15 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return self.error_json(400, "El corte debe ser 1, 2 o 3")
             try:
                 invoice_count = max(0, int(invoice_count_raw or row["invoice_count"] or 0))
+                year, month = parse_support_cycle_fields(payload)
             except ValueError:
                 return self.error_json(400, "La cantidad de facturas debe ser numérica")
 
-            if not eps_name or not radication_date or not corte:
+            if not eps_name or not radication_date or not corte or not year or not month:
                 status = "pendiente_revision"
             else:
                 status = "guardado"
 
-            year, month = support_cycle_year_month(radication_date, corte)
             if radication_date:
                 try:
                     datetime.strptime(radication_date, "%Y-%m-%d")
@@ -3481,13 +3492,13 @@ class AppHandler(SimpleHTTPRequestHandler):
                             COALESCE(SUM(invoice_count), 0) AS invoice_total
                         FROM supports
                         WHERE status != 'eliminado'
+                          AND year = ?
+                          AND month = ?
                           AND corte = ?
-                          AND radication_date >= ?
-                          AND radication_date <= ?
                         GROUP BY COALESCE(eps_name, 'Sin EPS')
                         ORDER BY invoice_total DESC, label
                         """,
-                        (corte_id, corte_item["start"], corte_item["end"]),
+                        (year, month, corte_id),
                     )
                 ]
                 invoice_total = sum(row["invoice_total"] for row in eps_rows)
