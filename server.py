@@ -1728,15 +1728,15 @@ def corte_ranges(year: int, month: int) -> list[dict[str, Any]]:
         {
             "id": "2",
             "label": "Corte 2",
-            "detail": f"26 de {MONTH_NAMES[month]} al 5 de {MONTH_NAMES[next_month_value]}",
-            "start": datetime(year, month, 26).date().isoformat(),
+            "detail": f"25 de {MONTH_NAMES[month]} al 5 de {MONTH_NAMES[next_month_value]}",
+            "start": datetime(year, month, 25).date().isoformat(),
             "end": datetime(next_year, next_month_value, 5).date().isoformat(),
         },
         {
             "id": "3",
             "label": "Corte 3",
-            "detail": f"6 al 15 de {MONTH_NAMES[next_month_value]}",
-            "start": datetime(next_year, next_month_value, 6).date().isoformat(),
+            "detail": f"5 al 15 de {MONTH_NAMES[next_month_value]}",
+            "start": datetime(next_year, next_month_value, 5).date().isoformat(),
             "end": datetime(next_year, next_month_value, 15).date().isoformat(),
         },
     ]
